@@ -1,0 +1,21 @@
+# terraform.tfvars.example
+# Copy this file to terraform.tfvars and fill in your values
+
+project_id = "your-gcp-project-id"
+region     = "us-central1"
+
+# Jira Configuration
+jira_user_name = "your.email@company.com"
+jira_token     = "your_jira_api_token"
+
+# Teams Webhooks - Engineering Managers
+teams_dg_exp_webhook    = "https://outlook.office.com/webhook/xxx-expansion"
+teams_dg_core_webhook   = "https://outlook.office.com/webhook/xxx-core"
+teams_dg_fulfill_webhook = "https://outlook.office.com/webhook/xxx-fulfill"
+
+# Teams Webhook - Scrum Master
+TEAMS_WEBHOOK = "https://outlook.office.com/webhook/xxx-scrummaster"
+
+# Optional: Customize schedule (default is 9 AM daily)
+# schedule = "0 9 * * *"
+# time_zone = "America/Chicago"
