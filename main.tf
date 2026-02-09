@@ -55,27 +55,55 @@ variable "jira_token" {
   sensitive   = true
 }
 
-variable "teams_dg_exp_webhook" {
-  description = "Teams webhook for DG Expansion team"
+variable "teams_webhook" {
+  description = "Teams incoming webhook URL for report link (shared channel)"
   type        = string
   sensitive   = true
 }
 
-variable "teams_dg_core_webhook" {
-  description = "Teams webhook for DG Core team"
+variable "confluence_base_url" {
+  description = "Confluence base URL (e.g. https://your-site.atlassian.net/wiki)"
   type        = string
+  default     = ""
+}
+
+variable "confluence_user" {
+  description = "Confluence user email"
+  type        = string
+  default     = ""
   sensitive   = true
 }
 
-variable "teams_dg_fulfill_webhook" {
-  description = "Teams webhook for DG Fulfill team"
+variable "confluence_token" {
+  description = "Confluence API token"
   type        = string
+  default     = ""
   sensitive   = true
 }
 
-variable "TEAMS_WEBHOOK" {
-  description = "Teams webhook for Scrum Master"
+variable "confluence_space_key" {
+  description = "Confluence space key"
   type        = string
+  default     = ""
+}
+
+variable "llm_provider" {
+  description = "LLM provider: groq or gemini"
+  type        = string
+  default     = "groq"
+}
+
+variable "groq_api_key" {
+  description = "Groq API key (when llm_provider=groq)"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "gemini_api_key" {
+  description = "Gemini/Google AI API key (when llm_provider=gemini)"
+  type        = string
+  default     = ""
   sensitive   = true
 }
 
@@ -148,12 +176,16 @@ resource "google_cloudfunctions2_function" "jira_report_function" {
     max_instance_request_concurrency = 1
 
     environment_variables = {
-      JIRA_USER_NAME          = var.jira_user_name
-      JIRA_TOKEN              = var.jira_token
-      TEAMS_DG_EXP_WEBHOOK    = var.teams_dg_exp_webhook
-      TEAMS_DG_CORE_WEBHOOK   = var.teams_dg_core_webhook
-      TEAMS_DG_FULFILL_WEBHOOK = var.teams_dg_fulfill_webhook
-      TEAMS_WEBHOOK        = var.TEAMS_WEBHOOK
+      JIRA_USER_NAME        = var.jira_user_name
+      JIRA_TOKEN            = var.jira_token
+      TEAMS_WEBHOOK         = var.teams_webhook
+      CONFLUENCE_BASE_URL   = var.confluence_base_url
+      CONFLUENCE_USER       = var.confluence_user
+      CONFLUENCE_TOKEN      = var.confluence_token
+      CONFLUENCE_SPACE_KEY  = var.confluence_space_key
+      LLM_PROVIDER         = var.llm_provider
+      GROQ_API_KEY         = var.groq_api_key
+      GEMINI_API_KEY       = var.gemini_api_key
     }
 
     ingress_settings = "ALLOW_ALL"

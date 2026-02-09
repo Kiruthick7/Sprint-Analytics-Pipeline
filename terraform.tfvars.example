@@ -1,21 +1,27 @@
 # terraform.tfvars.example
-# Copy this file to terraform.tfvars and fill in your values
+# Copy to terraform.tfvars and fill in values. See README for full setup.
 
 project_id = "your-gcp-project-id"
 region     = "us-central1"
 
-# Jira Configuration
+# Jira (required)
 jira_user_name = "your.email@company.com"
 jira_token     = "your_jira_api_token"
 
-# Teams Webhooks - Engineering Managers
-teams_dg_exp_webhook    = "https://outlook.office.com/webhook/xxx-expansion"
-teams_dg_core_webhook   = "https://outlook.office.com/webhook/xxx-core"
-teams_dg_fulfill_webhook = "https://outlook.office.com/webhook/xxx-fulfill"
+# Teams (required for report link)
+teams_webhook = "https://outlook.office.com/webhook/xxx-scrummaster"
 
-# Teams Webhook - Scrum Master
-TEAMS_WEBHOOK = "https://outlook.office.com/webhook/xxx-scrummaster"
+# Confluence (required for report page)
+confluence_base_url  = "https://your-site.atlassian.net/wiki"
+confluence_user      = "your.email@company.com"
+confluence_token     = "your_confluence_api_token"
+confluence_space_key = "YOUR_SPACE"
 
-# Optional: Customize schedule (default is 9 AM daily)
-# schedule = "0 9 * * *"
+# LLM (required for AI summary)
+llm_provider  = "groq"
+groq_api_key  = "your_groq_api_key"
+# gemini_api_key = "your_gemini_key"  # when llm_provider = "gemini"
+
+# Optional: schedule (default 9 AM daily)
+# schedule  = "0 9 * * *"
 # time_zone = "America/Chicago"

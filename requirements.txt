@@ -1,16 +1,15 @@
-markdown
-
-# Runtime
+# Core
 functions-framework==3.10.0
 requests==2.32.3
 python-dotenv==1.0.1
 jira==3.10.5
+markdown
 
-# LangChain (modern)
-langchain==1.2.6
-langchain-core==1.2.7
-langchain-google-genai==0.1.0
-langchain-groq # using this as a substitute for GoogleGenerativeAI(free tier limits are over)
+# LangChain (AI summary)
+langchain>=1.2,<3
+langchain-core>=1.2,<3
+langchain-google-genai>=0.1.0
+langchain-groq>=1.0
 
-# Google Cloud (logging only)
-google-cloud-logging==3.13.0
+# Google Cloud (optional logging)
+google-cloud-logging>=3.13.0

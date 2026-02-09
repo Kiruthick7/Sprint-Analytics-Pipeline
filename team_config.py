@@ -21,9 +21,9 @@ TEAMS_CONFIG = {
         "board_id": 385,
         "em_name": "SRINIDHI",
         "members": [],
-        # When active sprint is in excluded list, use first matching included sprint instead of skipping
         "excluded_sprint_names": ["Dig Exp | Azkaban", "S4 | GS Phase 1"],
-        "included_sprint_names": ["PI2 S3 Dig Exp"],
+        # * matches any sprint number (e.g. PI2 S3, PI2 S4, PI2 S5 Dig Exp) so no config change each sprint
+        "included_sprint_names": ["PI2 S* Dig Exp"],
     },
     "Redmedia Global": {
         "board_id": 1907,
@@ -40,10 +40,17 @@ TEAMS_CONFIG = {
 # Single channel where all EMs and Scrum Master are; one post with Confluence link
 REPORT_CHANNEL_WEBHOOK = os.getenv("TEAMS_WEBHOOK")
 
-# Custom JQL filter (optional)
+# Custom JQL filter (optional) – used for team reports (excludes subtasks)
 JIRA_CUSTOM_JQL_FILTER = (
     "status NOT IN (RESOLVED, CANCELED) "
     "AND assignee IS NOT EMPTY "
     "AND issuetype NOT IN subTaskIssueTypes() "
+    "ORDER BY status ASC"
+)
+
+# Person Lookup: include subtasks so assignee sees all their tickets (stories + subtasks)
+JIRA_PERSON_LOOKUP_JQL_FILTER = (
+    "status NOT IN CANCELED "
+    "AND assignee IS NOT EMPTY "
     "ORDER BY status ASC"
 )

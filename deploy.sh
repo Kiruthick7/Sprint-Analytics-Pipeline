@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Deployment script for Jira Daily Report Cloud Function
-# This script deploys the function and sets up Cloud Scheduler
+# Deploy Jira Daily Report as Cloud Function + Cloud Scheduler (Monday 9 AM IST).
+# See README "How to run" → Step 5 for full steps. Requires .env with GCP_*, Jira, Confluence, Teams, LLM.
 
 set -e  # Exit on error
 
@@ -35,6 +35,12 @@ gcloud services enable cloudscheduler.googleapis.com
 gcloud services enable cloudbuilder.googleapis.com
 gcloud services enable aiplatform.googleapis.com
 
+# Build env vars for the function (required: Jira, Teams; optional: Confluence, LLM, APP_BASE_URL)
+# Set these in .env before deploying. Optional vars can be left empty and configured later in GCP Console.
+ENV_VARS="JIRA_USER_NAME=${JIRA_USER_NAME},JIRA_TOKEN=${JIRA_TOKEN},JIRA_SERVER=${JIRA_SERVER:-https://hy-vee.atlassian.net},TEAMS_WEBHOOK=${TEAMS_WEBHOOK}"
+ENV_VARS="${ENV_VARS},CONFLUENCE_BASE_URL=${CONFLUENCE_BASE_URL:-},CONFLUENCE_USER=${CONFLUENCE_USER:-},CONFLUENCE_TOKEN=${CONFLUENCE_TOKEN:-},CONFLUENCE_SPACE_KEY=${CONFLUENCE_SPACE_KEY:-}"
+ENV_VARS="${ENV_VARS},LLM_PROVIDER=${LLM_PROVIDER:-groq},GROQ_API_KEY=${GROQ_API_KEY:-},GEMINI_API_KEY=${GEMINI_API_KEY:-},APP_BASE_URL=${APP_BASE_URL:-}"
+
 # Deploy Cloud Function
 echo -e "\n${GREEN}Deploying Cloud Function...${NC}"
 gcloud functions deploy ${CLOUD_FUNCTION_NAME} \
@@ -47,36 +53,41 @@ gcloud functions deploy ${CLOUD_FUNCTION_NAME} \
     --allow-unauthenticated \
     --timeout=540s \
     --memory=512MB \
-    --set-env-vars="JIRA_USER_NAME=${JIRA_USER_NAME},JIRA_TOKEN=${JIRA_TOKEN},TEAMS_DG_EXP_WEBHOOK=${TEAMS_DG_EXP_WEBHOOK},TEAMS_DG_CORE_WEBHOOK=${TEAMS_DG_CORE_WEBHOOK},TEAMS_DG_FULFILL_WEBHOOK=${TEAMS_DG_FULFILL_WEBHOOK},TEAMS_WEBHOOK=${TEAMS_WEBHOOK}"
+    --set-env-vars="${ENV_VARS}"
 
-# Get the Cloud Function URL
+# Get the Cloud Function URL (no trailing slash)
 FUNCTION_URL=$(gcloud functions describe ${CLOUD_FUNCTION_NAME} \
     --region=${GCP_REGION} \
     --format='value(serviceConfig.uri)')
+FUNCTION_URL=${FUNCTION_URL%/}
 
 echo -e "\n${GREEN}Cloud Function deployed successfully!${NC}"
 echo -e "Function URL: ${FUNCTION_URL}"
 
-# Create or update Cloud Scheduler job
-echo -e "\n${GREEN}Setting up Cloud Scheduler (daily at 9 AM)...${NC}"
+# Cloud Scheduler: run the REPORT (not the person lookup). Hit /report so the function runs report generation.
+# Schedule: every week Monday 9 AM IST (cron 1 = Monday; use 0=Sun, 2=Tue, ... 6=Sat)
+SCHEDULE_CRON="${SCHEDULE_CRON:-0 9 * * 1}"
+SCHEDULE_TIMEZONE="${SCHEDULE_TIMEZONE:-Asia/Kolkata}"
+REPORT_URL="${FUNCTION_URL}/report"
 
-# Check if scheduler job exists
+echo -e "\n${GREEN}Setting up Cloud Scheduler (weekly at 9 AM)...${NC}"
+
 if gcloud scheduler jobs describe ${CLOUD_FUNCTION_NAME}-scheduler --location=${GCP_REGION} &>/dev/null; then
     echo "Scheduler job exists, updating..."
     gcloud scheduler jobs update http ${CLOUD_FUNCTION_NAME}-scheduler \
         --location=${GCP_REGION} \
-        --schedule="0 9 * * *" \
-        --time-zone="America/Chicago" \
-        --uri="${FUNCTION_URL}" \
+        --schedule="${SCHEDULE_CRON}" \
+        --time-zone="${SCHEDULE_TIMEZONE}" \
+        --uri="${REPORT_URL}" \
         --http-method=GET \
         --attempt-deadline=540s
 else
     echo "Creating new scheduler job..."
     gcloud scheduler jobs create http ${CLOUD_FUNCTION_NAME}-scheduler \
         --location=${GCP_REGION} \
-        --schedule="0 9 * * *" \
-        --time-zone="America/Chicago" \
-        --uri="${FUNCTION_URL}" \
+        --schedule="${SCHEDULE_CRON}" \
+        --time-zone="${SCHEDULE_TIMEZONE}" \
+        --uri="${REPORT_URL}" \
         --http-method=GET \
         --attempt-deadline=540s
 fi
@@ -88,10 +99,12 @@ echo -e "\n${BLUE}Function Details:${NC}"
 echo -e "  Name: ${CLOUD_FUNCTION_NAME}"
 echo -e "  Region: ${GCP_REGION}"
 echo -e "  URL: ${FUNCTION_URL}"
-echo -e "  Schedule: Daily at 9:00 AM (America/Chicago)"
-echo -e "\n${BLUE}To test the function manually:${NC}"
-echo -e "  curl ${FUNCTION_URL}"
+echo -e "  Person Lookup: ${FUNCTION_URL}/ or ${FUNCTION_URL}/person"
+echo -e "  Schedule: Weekly Monday 9:00 AM ${SCHEDULE_TIMEZONE} (cron: ${SCHEDULE_CRON})"
+echo -e "\n${BLUE}To test the report manually:${NC}"
+echo -e "  curl ${REPORT_URL}"
 echo -e "\n${BLUE}To view logs:${NC}"
 echo -e "  gcloud functions logs read ${CLOUD_FUNCTION_NAME} --region=${GCP_REGION} --limit=50"
 echo -e "\n${BLUE}To trigger scheduler manually:${NC}"
 echo -e "  gcloud scheduler jobs run ${CLOUD_FUNCTION_NAME}-scheduler --location=${GCP_REGION}"
+echo -e "\n${BLUE}Set APP_BASE_URL=${FUNCTION_URL} in .env and redeploy so Confluence embed uses this URL.${NC}"

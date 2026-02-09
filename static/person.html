@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Individual Person – Jira Lookup</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 24px;
+      background: #f4f5f7;
+      color: #172b4d;
+    }
+    h1 { margin-top: 0; font-size: 1.5rem; }
+    .subtitle { color: #5e6c84; margin-top: 4px; font-size: 14px; }
+    .card {
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 1px 2px rgba(9,30,66,.08);
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .row { margin-bottom: 16px; }
+    label { display: inline-block; min-width: 120px; font-weight: 600; font-size: 14px; color: #172b4d; }
+    input[type="text"], select {
+      padding: 8px 12px;
+      font-size: 14px;
+      width: 280px;
+      border: 1px solid #dfe1e6;
+      border-radius: 4px;
+      background: #fff;
+    }
+    input[type="text"]:focus, select:focus {
+      outline: none;
+      border-color: #0052cc;
+      box-shadow: 0 0 0 1px #0052cc;
+    }
+    #developer-list {
+      position: absolute;
+      background: #fff;
+      border: 1px solid #dfe1e6;
+      border-radius: 4px;
+      max-height: 220px;
+      overflow-y: auto;
+      width: 280px;
+      z-index: 10;
+      box-shadow: 0 4px 12px rgba(9,30,66,.15);
+    }
+    #developer-list div { padding: 10px 12px; cursor: pointer; }
+    #developer-list div:hover { background: #ebecf0; }
+    .autocomplete-wrap { position: relative; display: inline-block; }
+    button {
+      padding: 10px 20px;
+      font-size: 14px;
+      font-weight: 500;
+      background: #0052cc;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover { background: #0747a6; }
+    button:disabled { background: #a5adba; cursor: not-allowed; }
+
+    /* Story points summary (Jira-style) */
+    .points-section { margin-bottom: 24px; }
+    .points-section h3 { font-size: 14px; font-weight: 600; color: #5e6c84; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 0.5px; }
+    .points-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    .point-box {
+      min-width: 56px;
+      padding: 10px 14px;
+      border-radius: 4px;
+      font-weight: 600;
+      font-size: 18px;
+      text-align: center;
+      background: #f4f5f7;
+      color: #172b4d;
+    }
+    .point-box.total { background: #deebff; color: #0052cc; }
+    .point-box.not-started { background: #f4f5f7; color: #5e6c84; }
+    .point-box.in-progress { background: #deebff; color: #0052cc; }
+    .point-box.completed { background: #e3fcef; color: #006644; }
+    .point-box.blocked { background: #ffebe6; color: #bf2600; }
+    .point-box .label { font-size: 11px; font-weight: 500; color: #5e6c84; margin-top: 2px; }
+    .point-box.total .label { color: #0052cc; }
+    .point-box.in-progress .label { color: #0052cc; }
+    .point-box.completed .label { color: #006644; }
+    .point-box.blocked .label { color: #bf2600; }
+
+    .meta { margin: 0 0 20px 0; padding: 0; }
+    .meta-line { font-size: 15px; margin-bottom: 6px; }
+    .meta-line strong { color: #172b4d; font-weight: 600; }
+    .meta-sub { color: #5e6c84; font-size: 13px; }
+    .issues-table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 14px; }
+    .issues-table th, .issues-table td { text-align: left; padding: 12px 14px; border-bottom: 1px solid #ebecf0; }
+    .issues-table th { background: #f4f5f7; font-weight: 600; color: #5e6c84; font-size: 12px; text-transform: uppercase; letter-spacing: 0.3px; }
+    .issues-table tbody tr:hover { background: #fafbfc; }
+    .issues-table tbody tr:nth-child(even) { background: #fafbfc; }
+    .issues-table tbody tr:nth-child(even):hover { background: #f4f5f7; }
+    .status-pill { display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; }
+    .status-pill.in-progress { background: #deebff; color: #0052cc; }
+    .status-pill.in-review { background: #eae6ff; color: #403294; }
+    .status-pill.in-test { background: #e3fcef; color: #006644; }
+    .status-pill.blocked { background: #ffebe6; color: #bf2600; }
+    .status-pill.done { background: #e3fcef; color: #006644; }
+    .status-pill.default { background: #f4f5f7; color: #5e6c84; }
+    .points-num { font-weight: 600; color: #172b4d; }
+    a { color: #0052cc; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .error { color: #bf2600; }
+    .loading { color: #5e6c84; }
+    .empty-msg { color: #5e6c84; margin: 0; }
+    .card-table { overflow-x: auto; }
+
+    /* Full-page loading overlay */
+    #loading-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(244, 245, 247, 0.95);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      transition: opacity 0.2s ease;
+    }
+    #loading-overlay.hidden { pointer-events: none; opacity: 0; }
+    .loading-content {
+      text-align: center;
+      padding: 32px;
+    }
+    .loading-spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid #dfe1e6;
+      border-top-color: #0052cc;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 16px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-message { font-size: 14px; color: #5e6c84; font-weight: 500; }
+  </style>
+</head>
+<body>
+  <div id="loading-overlay">
+    <div class="loading-content">
+      <div class="loading-spinner"></div>
+      <div class="loading-message" id="loading-message">Loading…</div>
+    </div>
+  </div>
+
+  <div class="card" id="main-card">
+    <h1>Individual Person Details</h1>
+    <p class="subtitle">Search by developer name, then pick team and sprint to fetch Jira details and story points.</p>
+
+    <div class="row">
+      <label for="developer">Developer</label>
+      <div class="autocomplete-wrap">
+        <input type="text" id="developer" placeholder="Type to search..." autocomplete="off">
+        <div id="developer-list" style="display: none;"></div>
+      </div>
+    </div>
+    <div class="row">
+      <label for="team">Team</label>
+      <input type="text" id="team" readonly placeholder="Select a developer">
+    </div>
+    <div class="row">
+      <label for="sprint">Sprint</label>
+      <select id="sprint">
+        <option value="">Select sprint…</option>
+      </select>
+    </div>
+    <div class="row">
+      <label></label>
+      <button type="button" id="fetch-btn" disabled>Fetch from Jira</button>
+    </div>
+  </div>
+
+  <div id="meta" class="card" style="display: none;">
+    <div class="meta" id="meta-content"></div>
+    <div id="points-container"></div>
+  </div>
+  <div id="results"></div>
+
+  <script>
+    // Use root-relative paths so /api/developers works from /person or /
+    const api = (path, params = {}) => {
+      const p = path.startsWith('/') ? path : '/' + path;
+      const q = new URLSearchParams(params).toString();
+      return (q ? p + '?' + q : p);
+    };
+
+    let developers = [];
+    let selectedBoardId = null;
+    let lastFetchedDeveloper = null;
+
+    async function loadDevelopers() {
+      const r = await fetch(api('/api/developers'));
+      const text = await r.text();
+      let errMsg = 'Failed to load developers';
+      if (!r.ok) {
+        try {
+          const j = JSON.parse(text);
+          if (j.error) errMsg += ': ' + j.error;
+        } catch (_) {
+          if (text) errMsg += ' (' + r.status + ')';
+        }
+        throw new Error(errMsg);
+      }
+      try {
+        developers = JSON.parse(text);
+      } catch (_) {
+        throw new Error('Invalid response from server');
+      }
+    }
+
+    function renderPointBox(value, label, cssClass) {
+      const v = value != null && value !== '' ? Number(value) : 0;
+      return '<div class="point-box ' + cssClass + '"><div>' + v + '</div><div class="label">' + escapeHtml(label) + '</div></div>';
+    }
+
+    function renderPointsBreakdown(breakdown, title) {
+      if (!breakdown) return '';
+      return '<div class="points-section">' +
+        '<h3>' + escapeHtml(title) + '</h3>' +
+        '<div class="points-row">' +
+        renderPointBox(breakdown.total, 'Total', 'total') +
+        renderPointBox(breakdown.not_started, 'Not started', 'not-started') +
+        renderPointBox(breakdown.in_progress, 'In progress', 'in-progress') +
+        renderPointBox(breakdown.completed, 'Completed', 'completed') +
+        renderPointBox(breakdown.blocked, 'Blocked/On hold', 'blocked') +
+        '</div></div>';
+    }
+
+    const devInput = document.getElementById('developer');
+    const devList = document.getElementById('developer-list');
+    const teamInput = document.getElementById('team');
+    const sprintSelect = document.getElementById('sprint');
+    const fetchBtn = document.getElementById('fetch-btn');
+    const metaDiv = document.getElementById('meta');
+    const metaContent = document.getElementById('meta-content');
+    const pointsContainer = document.getElementById('points-container');
+    const resultsDiv = document.getElementById('results');
+    const loadingOverlay = document.getElementById('loading-overlay');
+    const loadingMessage = document.getElementById('loading-message');
+
+    function showLoading(msg) {
+      loadingMessage.textContent = msg || 'Loading…';
+      loadingOverlay.classList.remove('hidden');
+    }
+    function hideLoading() {
+      loadingOverlay.classList.add('hidden');
+    }
+
+    function clearResults() {
+      metaDiv.style.display = 'none';
+      metaContent.innerHTML = '';
+      pointsContainer.innerHTML = '';
+      resultsDiv.innerHTML = '';
+    }
+
+    function showDropdown(filter) {
+      const f = (filter || '').trim().toLowerCase();
+      const list = f ? developers.filter(d => d.name.toLowerCase().includes(f)) : developers.slice(0, 50);
+      devList.innerHTML = '';
+      list.slice(0, 30).forEach(d => {
+        const div = document.createElement('div');
+        div.textContent = d.name + ' (' + d.team_name + ')';
+        div.dataset.name = d.name;
+        div.dataset.team = d.team_name;
+        div.dataset.boardId = d.board_id;
+        div.onclick = () => selectDeveloper(d);
+        devList.appendChild(div);
+      });
+      devList.style.display = list.length ? 'block' : 'none';
+    }
+
+    function selectDeveloper(d) {
+      devInput.value = d.name;
+      devList.style.display = 'none';
+      teamInput.value = d.team_name;
+      selectedBoardId = d.board_id;
+      lastFetchedDeveloper = null;
+      clearResults();
+      sprintSelect.innerHTML = '<option value="">Loading sprints…</option>';
+      fetchBtn.disabled = true;
+      showLoading('Loading sprints…');
+      loadSprints(d.board_id);
+    }
+
+    async function loadSprints(boardId) {
+      try {
+        const r = await fetch(api('/api/sprints', { board_id: boardId }));
+        if (!r.ok) {
+          sprintSelect.innerHTML = '<option value="">Failed to load</option>';
+          return;
+        }
+        const sprints = await r.json();
+        sprintSelect.innerHTML = '<option value="">Select sprint…</option>';
+        let activeFirst = sprints.filter(s => s.state === 'active');
+        let future = sprints.filter(s => s.state === 'future');
+        let closed = sprints.filter(s => s.state === 'closed');
+        [...activeFirst, ...future, ...closed].forEach(s => {
+          const opt = document.createElement('option');
+          opt.value = s.id;
+          opt.textContent = s.name + (s.state === 'active' ? ' (active)' : s.state === 'future' ? ' (future)' : '');
+          if (s.state === 'active') opt.selected = true;
+          sprintSelect.appendChild(opt);
+        });
+      } finally {
+        hideLoading();
+      }
+      fetchBtn.disabled = false;
+    }
+
+    devInput.addEventListener('input', () => {
+      showDropdown(devInput.value);
+      if (lastFetchedDeveloper && devInput.value.trim() !== lastFetchedDeveloper) {
+        clearResults();
+      }
+    });
+    devInput.addEventListener('focus', () => showDropdown(devInput.value));
+    devInput.addEventListener('blur', () => setTimeout(() => { devList.style.display = 'none'; }, 200));
+
+    fetchBtn.addEventListener('click', async () => {
+      const name = devInput.value.trim();
+      const sprintId = sprintSelect.value;
+      if (!name || !selectedBoardId || !sprintId) return;
+      fetchBtn.disabled = true;
+      showLoading('Fetching from Jira…');
+      metaDiv.style.display = 'none';
+      resultsDiv.innerHTML = '';
+      try {
+        const r = await fetch(api('/api/person', { developer: name, board_id: selectedBoardId, sprint_id: sprintId }));
+        const data = await r.json();
+        if (data.error) {
+          resultsDiv.innerHTML = '<div class="card"><p class="error">' + escapeHtml(data.error) + '</p></div>';
+        } else {
+          lastFetchedDeveloper = data.developer_name;
+          metaDiv.style.display = 'block';
+          metaContent.innerHTML =
+            '<div class="meta-line"><strong>' + escapeHtml(data.developer_name) + '</strong> · ' +
+            escapeHtml(data.team_name) + ' · ' + escapeHtml(data.sprint_name || '') + '</div>' +
+            '<div class="meta-line meta-sub">Issues in this sprint: ' + data.issue_count + '</div>';
+
+          pointsContainer.innerHTML =
+            renderPointsBreakdown(data.sprint_breakdown, 'Sprint story points') +
+            renderPointsBreakdown(data.person_breakdown, 'This person’s story points');
+
+          if (data.issues.length === 0) {
+            resultsDiv.innerHTML = '<div class="card"><p class="empty-msg">No issues found for this person in the selected sprint.</p></div>';
+          } else {
+            let table = '<div class="card card-table"><table class="issues-table"><thead><tr><th>Key</th><th>Summary</th><th>Status</th><th>Type</th><th>Points</th></tr></thead><tbody>';
+            data.issues.forEach(i => {
+              var pillClass = 'default';
+              var s = (i.status || '').toLowerCase();
+              if (s.indexOf('progress') !== -1) pillClass = 'in-progress';
+              else if (s.indexOf('review') !== -1) pillClass = 'in-review';
+              else if (s.indexOf('test') !== -1) pillClass = 'in-test';
+              else if (s.indexOf('block') !== -1) pillClass = 'blocked';
+              else if (s.indexOf('done') !== -1 || s.indexOf('resolved') !== -1) pillClass = 'done';
+              var pts = (i.story_points != null && i.story_points !== '' && Number(i.story_points) > 0) ? '<span class="points-num">' + escapeHtml(String(i.story_points)) + '</span>' : '—';
+              table += '<tr><td><a href="' + escapeHtml(i.url) + '" target="_blank" rel="noopener">' + escapeHtml(i.key) + '</a></td><td>' +
+                escapeHtml(i.summary) + '</td><td><span class="status-pill ' + pillClass + '">' + escapeHtml(i.status) + '</span></td><td>' + escapeHtml(i.issuetype) + '</td><td>' + pts + '</td></tr>';
+            });
+            table += '</tbody></table></div>';
+            resultsDiv.innerHTML = table;
+          }
+        }
+      } catch (e) {
+        resultsDiv.innerHTML = '<div class="card"><p class="error">Request failed: ' + escapeHtml(e.message) + '</p></div>';
+      }
+      hideLoading();
+      fetchBtn.disabled = false;
+    });
+
+    function escapeHtml(s) {
+      if (s == null) return '';
+      const div = document.createElement('div');
+      div.textContent = s;
+      return div.innerHTML;
+    }
+
+    loadDevelopers()
+      .then(() => {
+        hideLoading();
+        showDropdown('');
+      })
+      .catch((e) => {
+        hideLoading();
+        const msg = e && e.message ? e.message : 'Failed to load developers';
+        teamInput.placeholder = msg;
+        teamInput.value = '';
+        devList.innerHTML = '<div class="error">' + escapeHtml(msg) + '</div>';
+        devList.style.display = 'block';
+      });
+  </script>
+</body>
+</html>

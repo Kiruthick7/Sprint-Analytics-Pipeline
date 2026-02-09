@@ -1,99 +1,216 @@
 # Daily Jira Report Generator
 
-Automatically generates daily Jira sprint reports for multiple teams, posts a consolidated report to Confluence, and sends a link to a shared Microsoft Teams channel. Uses an LLM (Groq or Gemini) for summaries and includes spillover from the previous sprint.
+Generates **daily** Jira sprint reports for multiple teams, posts one consolidated page to Confluence, and notifies a Microsoft Teams channel. Includes **Person Lookup**: open the report and use the link (or embedded box) to look up a developer and see their story points and issues.
 
 ## Features
 
-- **Multi-team**: Processes each team from `team_config.py` (Jira board ID per team).
-- **Single Confluence page**: One page per run with team-wise sections (Sprint info, Team members, **Spillover from previous sprint**, AI summary, issues table).
-- **Teams notification**: One message to the shared channel with Confluence link, date (IST), and teams included.
-- **Spillover**: Shows issues not completed in the last closed sprint (JQL fallback on Jira Cloud when Sprint Report API returns 404).
-- **Team members**: Auto-detected from current sprint + board backlog; optional explicit list in config.
-- **Verification checklist**: Per-issue compliance (AC comment, PR link, labels, evidence) via `verification_helpers.py`.
-- **LLM summary**: Groq (llama-4-scout-17b) or Gemini (gemini-1.5-flash) for progress, blockers, stale issues, action items.
+- **Multi-team reports** from `team_config.py` (board ID per team)
+- **Single Confluence page** — the same page is **updated** each run (no new page per day); sprint tables, spillover, AI summary (Groq or Gemini)
+- **Total Story Points & Velocity** — from Jira Sprint Report when available; **issue-based fallback** when the report API returns 404 (e.g. Jira Cloud)
+- **Story point breakdown** — Not started, In progress, Completed, **Blocked/On hold** (board column or status name)
+- **Teams notification** with Confluence link (date in IST)
+- **Person Lookup** — link at bottom of Confluence page (and optional iframe); type name, pick team/sprint, fetch to see details
+- **Cloud Scheduler** — run the report every **Monday 9 AM IST** (configurable)
 
 ## Prerequisites
 
 - Python 3.11+
-- Jira (Atlassian) account with API token
-- Confluence space (for report page)
-- Microsoft Teams incoming webhook (for the shared channel)
-- Groq API key (default) or Google AI / Gemini API key (optional)
+- Jira account + API token
+- Confluence space (for the report page)
+- Microsoft Teams incoming webhook (for the report link)
+- Groq or Gemini API key (for AI summary)
 
-## Quick Start
+---
 
-### 1. Clone and install
+## How to run
+
+### Step 1: Clone and install
 
 ```bash
 cd /path/to/Jira
 pip install -r requirements.txt
 ```
 
-### 2. Configure environment
+### Step 2: Configure environment
 
 ```bash
 cp .env.example .env
-# Edit .env: Jira, Confluence, Teams webhook, LLM provider and API key
 ```
 
-Required in `.env`:
+Edit `.env` and set at least:
 
-| Variable | Description |
-|----------|-------------|
-| `JIRA_USER_NAME` | Jira user email |
-| `JIRA_TOKEN` | Jira API token |
-| `TEAMS_WEBHOOK` | Teams incoming webhook URL for report channel |
-| `CONFLUENCE_BASE_URL` | e.g. `https://your-site.atlassian.net/wiki` |
-| `CONFLUENCE_USER` | Confluence user email |
-| `CONFLUENCE_TOKEN` | Confluence API token |
-| `CONFLUENCE_SPACE_KEY` | Target space key (e.g. `HGD`) |
-| `LLM_PROVIDER` | `groq` (default) or `gemini` |
-| `GROQ_API_KEY` | Required if `LLM_PROVIDER=groq` |
-| `GEMINI_API_KEY` or `GOOGLE_API_KEY` | Required if `LLM_PROVIDER=gemini` |
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `JIRA_USER_NAME` | Yes | Jira user email |
+| `JIRA_TOKEN` | Yes | Jira API token |
+| `CONFLUENCE_BASE_URL` | For report | e.g. `https://your-site.atlassian.net/wiki` |
+| `CONFLUENCE_USER` | For report | Confluence user email |
+| `CONFLUENCE_TOKEN` | For report | Confluence API token |
+| `CONFLUENCE_SPACE_KEY` | For report | Space key (e.g. `HGD`) |
+| `TEAMS_WEBHOOK` | For report | Teams incoming webhook URL |
+| `LLM_PROVIDER` | For report | `groq` or `gemini` |
+| `GROQ_API_KEY` | If groq | Groq API key |
+| `GEMINI_API_KEY` or `GOOGLE_API_KEY` | If gemini | Gemini/Google AI key |
+| `APP_BASE_URL` | For Person Lookup on Confluence | Public URL of this app (see Step 4 / Deploy) |
 
-### 3. Configure teams
+### Step 3: Configure teams
 
-Edit `team_config.py`: set `board_id` (and optionally `members`) for each team. Use `members: []` to auto-detect from sprint + backlog.
+Edit `team_config.py`: set `board_id` for each team. Use `members: []` to auto-detect assignees from the sprint.
 
-### 4. Run locally
+### Step 4: Run locally
+
+**Option A – Generate the report once (no browser)**
 
 ```bash
 python main.py
 ```
 
-This runs the full flow: fetch sprint/issues per team, generate AI summary, post one Confluence page, and send the link to Teams.
+Runs the full flow (fetch from Jira, build report, post to Confluence, send link to Teams) and exits.
 
-## Project Structure
+**Option B – Run the web app (report + Person Lookup in browser)**
 
-```
-.
-├── main.py                 # Entrypoint: report generation, Confluence, Teams
-├── team_config.py          # Teams, board IDs, optional members, JQL filter
-├── verification_helpers.py  # Jira verification checklist (AC, PR, labels, etc.)
-├── requirements.txt
-├── .env.example
-├── deploy.sh               # Deploy to Google Cloud Function
-├── Dockerfile              # Container build for Cloud Run / GCP
-├── main.tf                 # Terraform (optional)
-└── README.md
+```bash
+functions_framework --target=generate_and_send_report --port=8080 --debug
 ```
 
-## Deployment (Google Cloud)
+Use `--debug` so the app runs in a single process (Flask dev server). That can avoid worker crashes (SIGSEGV) you may see when hitting `/report` with the default multi-worker setup. Keep the terminal running. Then:
 
-1. Set in `.env`: `GCP_PROJECT_ID`, `GCP_REGION`, `CLOUD_FUNCTION_NAME`, `SERVICE_ACCOUNT_EMAIL`.
+| What you want | Open in browser |
+|---------------|------------------|
+| **Individual Person Lookup** (textbox, sprint dropdown, fetch) | http://localhost:8080/ or http://localhost:8080/person |
+| **Run the report manually** | http://localhost:8080/report |
+
+For the Person Lookup to appear on the Confluence page when you deploy, set `APP_BASE_URL=http://localhost:8080` in `.env` when testing locally (optional). In production you’ll set `APP_BASE_URL` to your Cloud Function URL.
+
+### Step 5: Deploy to Google Cloud (production)
+
+1. In `.env`, set:
+   - `GCP_PROJECT_ID`, `GCP_REGION`, `CLOUD_FUNCTION_NAME`
+   - All vars from Step 2 (Jira, Confluence, Teams, LLM)
 2. Run:
 
 ```bash
-./deploy.sh 
+./deploy.sh
 ```
 
-This deploys the Cloud Function and sets up Cloud Scheduler. Adjust the schedule in `deploy.sh` if needed (e.g. 9 AM on weekdays).
+This will:
 
-## Configuration Details
+- Deploy the app as a **Cloud Function** (HTTP).
+- Create a **Cloud Scheduler** job that calls the function **every Monday at 9:00 AM IST** at `/report` (generates the report and posts to Confluence + Teams).
 
-- **JQL filter**: Default in `team_config.py` excludes resolved/canceled, empty assignee, and sub-tasks. Override with `JIRA_CUSTOM_JQL_FILTER` if needed.
-- **Sprint naming**: Report warns if sprint name doesn’t match `PI<X> S<X> Squad_Name`; it does not change behavior.
-- **Rate limiting**: 15-second delay between teams to avoid Jira/API rate limits.
+3. **After the first deploy:** copy the function URL from the script output and set in `.env`:
+
+   ```bash
+   APP_BASE_URL=https://REGION-PROJECT.cloudfunctions.net/FUNCTION_NAME
+   ```
+
+   Then run `./deploy.sh` again so the function gets `APP_BASE_URL`. The Confluence report will then show the **Look up a person** section at the bottom (link and optional embedded iframe).
+
+**Optional:** Change schedule in `.env` before deploying:
+
+```bash
+SCHEDULE_CRON="0 9 * * 1"      # 0=Sun, 1=Mon, ... 6=Sat
+SCHEDULE_TIMEZONE=Asia/Kolkata
+```
+
+**Alternative: Terraform**  
+Use `main.tf` and `terraform.tfvars` (copy from `terraform.tfvars.example`) to provision the Cloud Function and Scheduler. Set `teams_webhook`, Confluence vars, and LLM keys in `terraform.tfvars`. The app uses a single Teams webhook for the report link.
+
+---
+
+## End-to-end flow
+
+1. **Report is generated**
+   Either by Cloud Scheduler (Monday 9 AM IST) or by you (e.g. `python main.py` or http://localhost:8080/report). The app posts one Confluence page with all teams’ sections.
+
+2. **You open the Confluence page**
+   From the link in Teams or from your Confluence space. You see the full report (date, teams, then each team’s sprint table, spillover, AI summary).
+
+3. **Look up a person**
+   Scroll to the bottom of the Confluence page. Use **"Open Person Lookup in a new tab"** (recommended; Confluence often blocks iframes). On the Person Lookup page: type the developer name, select team and sprint, click **Fetch from Jira** to see story points (Total, Not started, In progress, Completed, Blocked/On hold) and the issue list.
+
+---
+
+## Project structure
+
+```
+.
+├── main.py                 # HTTP entrypoint: routing, report, Person Lookup API
+├── config.py               # Env and Jira/Confluence config
+├── team_config.py          # Teams, board IDs, optional members
+├── jira_api/
+│   ├── jira_sprint.py      # Sprint info, spillover, velocity, story points (Agile API)
+│   ├── jira_issues.py      # Issue fetch, team members, story points, verification
+│   └── verification_helpers.py
+├── report/
+│   ├── report_builder.py   # Build team reports and consolidated Confluence content
+│   └── llm_report.py       # LLM and prompt for AI summary
+├── clients/
+│   ├── confluence_client.py # Post/update Confluence page
+│   └── teams_client.py     # Post to Teams webhook
+├── person/
+│   └── person_lookup.py    # Individual Person: developers list, sprints, person details
+├── static/
+│   └── person.html         # Person Lookup UI (embedded on Confluence)
+├── requirements.txt
+├── .env.example
+├── deploy.sh               # Deploy Cloud Function + Scheduler (sources .env)
+├── main.tf                 # Optional: Terraform for function + scheduler
+├── terraform.tfvars.example
+├── Dockerfile              # Container image for Cloud Run / local
+└── README.md
+```
+
+---
+
+## Configuration
+
+- **JQL filter (team report):** `JIRA_CUSTOM_JQL_FILTER` in `team_config.py` is used for the main report (excludes resolved/canceled, empty assignee, sub-tasks). This drives **Issues in Sprint** (count of parent issues in the sprint that are not resolved/canceled and have an assignee) and the issue list for the AI summary.
+- **Velocity (story points):** Each team's section includes a **Velocity** table (last 5 closed sprints: Commitment | Completed + Average). No JQL filter is used for velocity — all issues in each sprint are fetched; **Commitment** = total story points of parent issues only; **Completed** = story points of resolved parent issues. When the Jira Sprint Report API is available it is used; otherwise these values are computed from issues (e.g. on Jira Cloud where the report API returns 404).
+- **Sprint naming:** Report warns if the name doesn’t match `PI<X> S<X> Squad_Name`; it does not change behavior.
+- **Rate limiting:** 15-second delay between teams when generating the report.
+- **Confluence page:** Fixed title **"Daily Jira Status Report - All Teams"**. Each run **updates** that page if it exists; otherwise a new page is created.
+- **Logging:** Sprint report 404s and board config lookups are logged at DEBUG level; set `logging.getLogger("jira_api.jira_sprint").setLevel(logging.DEBUG)` to see them.
+
+---
+
+## Troubleshooting
+
+### "Failed to load developers" on Person Lookup page
+
+The page now shows the real error (e.g. in the Developer/Team area). Common causes:
+
+- **Jira credentials:** Ensure `JIRA_USER_NAME` and `JIRA_TOKEN` in `.env` are correct and the user has access to the boards in `team_config.py`.
+- **Network:** If the app runs in a restricted environment, Jira API calls may fail; check firewall/proxy.
+- **Server crash:** If the server is crashing (see SIGSEGV below), the request to `/api/developers` may never complete. Use `--debug` when running locally.
+
+### SIGSEGV when opening `/report` or when loading developers
+
+The log shows `Worker (pid:...) was sent SIGSEGV!` and the browser may show "This page isn't working" / "ERR_EMPTY_RESPONSE". Try:
+
+1. **Run with a single process (recommended for local):**
+   ```bash
+   functions_framework --target=generate_and_send_report --port=8080 --debug
+   ```
+   `--debug` uses the Flask dev server instead of multi-worker gunicorn, which often avoids this crash.
+
+2. **Confirm the report runs outside the server:** Run `python main.py` in the same environment. If that completes without a crash, the issue is likely the HTTP worker process; `--debug` should help. If `python main.py` also crashes, the segfault is probably in a native dependency (e.g. Jira client, SSL, or LLM library). Try updating: `pip install --upgrade jira requests`.
+
+3. **Check dependencies:** SIGSEGV can come from C extensions (e.g. in `cryptography`, `requests`). Ensure you're on a supported Python version and that packages are installed for your platform.
+
+---
+
+## Useful commands
+
+| Task | Command |
+|------|--------|
+| Run report once | `python main.py` |
+| Start web app (local) | `functions_framework --target=generate_and_send_report --port=8080 --debug` |
+| Deploy to GCP | `./deploy.sh` |
+| Trigger scheduler manually | `gcloud scheduler jobs run CLOUD_FUNCTION_NAME-scheduler --location=GCP_REGION` |
+| View function logs | `gcloud functions logs read CLOUD_FUNCTION_NAME --region=GCP_REGION --limit=50` |
+
+---
 
 ## License
 
