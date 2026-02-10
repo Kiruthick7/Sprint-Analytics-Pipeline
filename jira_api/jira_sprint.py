@@ -132,14 +132,14 @@ def get_last_closed_sprint_id(board_id: int) -> int | None:
         return None
 
 
-def _agile_get(board_id: int, path: str) -> dict | None:
+def _agile_get(board_id: int, path: str, params: dict | None = None) -> dict | None:
     """GET from Jira Agile API (same auth as sprint report). Returns None on non-200 or error."""
     auth = _jira_agile_auth()
     if not auth:
         return None
     url = f"{JIRA_SERVER.rstrip('/')}/rest/agile/1.0/board/{board_id}{path}"
     try:
-        r = requests.get(url, auth=auth, timeout=15)
+        r = requests.get(url, auth=auth, timeout=15, params=params or {})
         if r.status_code != 200:
             logger.debug("Agile API %s -> %s (body: %s)", url, r.status_code, r.text[:200] if r.text else "")
             return None
@@ -147,6 +147,18 @@ def _agile_get(board_id: int, path: str) -> dict | None:
     except requests.exceptions.RequestException as e:
         logger.warning("Agile API %s failed: %s", url, e)
         return None
+
+
+def get_board_backlog_count(board_id: int) -> int | None:
+    """Return number of issues in the board's backlog (not in any sprint), or None if unavailable."""
+    data = _agile_get(board_id, "/backlog", params={"maxResults": 0})
+    if not data:
+        return None
+    total = data.get("total")
+    if total is not None:
+        return int(total)
+    issues = data.get("issues") or data.get("values") or []
+    return len(issues)
 
 
 # Cache board config, story-points field, and status→bucket per board_id (avoids repeated API calls and log noise).
@@ -261,10 +273,12 @@ def _parse_spillover_from_report(data: dict) -> list[dict]:
         if isinstance(item, dict):
             key = item.get("key") or (item.get("id") and str(item.get("id")))
             fields = item.get("fields") or item
-            summary = fields.get("summary") if isinstance(fields, dict) else None
-            result.append({"key": key, "summary": summary or ""})
+            summary = (fields.get("summary") or "") if isinstance(fields, dict) else ""
+            assignee_raw = fields.get("assignee") if isinstance(fields, dict) else None
+            assignee = (assignee_raw.get("displayName") or "") if isinstance(assignee_raw, dict) else ""
+            result.append({"key": key, "summary": summary, "assignee": assignee})
         else:
-            result.append({"key": str(item), "summary": ""})
+            result.append({"key": str(item), "summary": "", "assignee": ""})
     return result
 
 
@@ -485,8 +499,15 @@ def get_spillover_via_jql(sprint_id: int) -> list[dict]:
     """Fallback: get spillover via JQL when Sprint Report API returns 404 (e.g. Jira Cloud)."""
     try:
         jql = f'sprint = {sprint_id} AND resolution is empty AND issuetype NOT IN subTaskIssueTypes() ORDER BY status ASC'
-        issues = jira_client.search_issues(jql, maxResults=200, fields=["key", "summary"])
-        return [{"key": i.key, "summary": (i.fields.summary or "")} for i in issues]
+        issues = jira_client.search_issues(jql, maxResults=200, fields=["key", "summary", "assignee"])
+        return [
+            {
+                "key": i.key,
+                "summary": (i.fields.summary or ""),
+                "assignee": (i.fields.assignee.displayName if i.fields.assignee else "") or "",
+            }
+            for i in issues
+        ]
     except Exception as e:
         logger.warning(f"[Spillover] get_spillover_via_jql failed for sprint_id={sprint_id}: {e}")
         return []

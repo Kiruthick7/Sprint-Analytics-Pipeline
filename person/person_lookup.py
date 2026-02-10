@@ -7,6 +7,8 @@ from jira_api.jira_sprint import (
     get_board_status_to_bucket,
     get_board_story_points_field,
     get_sprint_report_points_breakdown,
+    get_active_sprint_info,
+    get_allowed_sprint_info,
 )
 
 logger = logging.getLogger(__name__)
@@ -137,20 +139,35 @@ def get_sprint_story_points_breakdown(board_id: int, sprint_id: int | None = Non
 
 
 def get_all_developers() -> list[dict]:
-    """Fetch all developers across teams (from each team's active sprint assignees). Returns list of {name, team_name, board_id}."""
+    """Fetch developers from Jira (assignees in each team's sprint). For Dig Experience, only sprints matching included_sprint_names and not in excluded_sprint_names; other teams use active/future sprint. Returns list of {name, team_name, board_id}."""
     seen = set()
     result = []
     for team_name, team_config in TEAMS_CONFIG.items():
         board_id = team_config.get("board_id")
         if not board_id:
             continue
+        excluded = team_config.get("excluded_sprint_names") or []
+        included = team_config.get("included_sprint_names")
+        if excluded or included:
+            sprint_info = get_allowed_sprint_info(
+                board_id,
+                excluded_sprint_names=excluded,
+                included_sprint_names=included,
+            )
+            sprint_name = sprint_info.get("name") if sprint_info else None
+        else:
+            sprint_info = get_active_sprint_info(board_id)
+            if sprint_info:
+                sprint_name = sprint_info.get("name")
+            else:
+                try:
+                    sprints = jira_client.sprints(board_id, state="future")
+                    sprint_name = getattr(sprints[0], "name", None) if sprints else None
+                except Exception:
+                    sprint_name = None
+        if not sprint_name:
+            continue
         try:
-            sprints = jira_client.sprints(board_id, state="active")
-            if not sprints:
-                sprints = jira_client.sprints(board_id, state="future")
-            sprint_name = getattr(sprints[0], "name", None) if sprints else None
-            if not sprint_name:
-                continue
             jql = f'sprint = "{sprint_name}"'
             if JIRA_PERSON_LOOKUP_JQL_FILTER:
                 jql += f" AND {JIRA_PERSON_LOOKUP_JQL_FILTER}"
@@ -170,8 +187,12 @@ def get_all_developers() -> list[dict]:
     return result
 
 
-def get_sprints_for_board(board_id: int) -> list[dict]:
-    """Get sprints for a board (active first, then future, then recent closed). Returns list of {id, name, state}."""
+def get_sprints_for_board(board_id: int, developer_name: str | None = None) -> list[dict]:
+    """
+    Get sprints for a board (active first, then future, then recent closed).
+    Returns list of {id, name, state}.
+    If developer_name is provided, returns only sprints where that person has at least one issue.
+    """
     out = []
     try:
         for state in ("active", "future", "closed"):
@@ -183,7 +204,69 @@ def get_sprints_for_board(board_id: int) -> list[dict]:
                     out.append({"id": int(sid), "name": name, "state": state})
     except Exception as e:
         logger.warning(f"get_sprints_for_board board_id={board_id}: {e}")
-    return out
+        return out
+
+    if not developer_name:
+        return []
+    if not out:
+        return out
+
+    # 1. Get issues assigned to this person (one JQL), 2. Extract unique sprint IDs, 3. Filter board sprints to those IDs
+    board_sprint_ids = {s["id"] for s in out}
+    person_sprint_ids = set()
+
+    def _sprint_id_from_issue(issue) -> set:
+        """Extract sprint id(s) from an issue (fields or raw). Returns set of int sprint ids."""
+        out_ids = set()
+        fields = getattr(issue, "fields", None)
+        if fields is None:
+            raw = getattr(issue, "raw", None)
+            if isinstance(raw, dict):
+                fields = raw.get("fields") or {}
+            else:
+                return out_ids
+        sp = fields.get("sprint") if isinstance(fields, dict) else getattr(fields, "sprint", None)
+        if sp is None:
+            return out_ids
+        for item in (sp if isinstance(sp, (list, tuple)) else [sp]):
+            sid = item.get("id") if isinstance(item, dict) else getattr(item, "id", None)
+            if sid is not None:
+                try:
+                    out_ids.add(int(sid))
+                except (TypeError, ValueError):
+                    pass
+        return out_ids
+
+    try:
+        jql = f'assignee = "{developer_name}" AND sprint is not empty'
+        if JIRA_PERSON_LOOKUP_JQL_FILTER:
+            jql += f" AND {JIRA_PERSON_LOOKUP_JQL_FILTER}"
+        issues = jira_client.search_issues(jql, maxResults=500, fields=["sprint"])
+        for issue in issues:
+            person_sprint_ids |= _sprint_id_from_issue(issue)
+        person_sprint_ids &= board_sprint_ids
+        filtered = [s for s in out if s["id"] in person_sprint_ids]
+        if filtered:
+            logger.info("get_sprints_for_board: board_id=%s developer=%s -> %s sprints", board_id, developer_name, len(filtered))
+            return filtered
+    except Exception as e:
+        logger.warning(f"get_sprints_for_board (assignee search) board_id={board_id} developer={developer_name}: {e}")
+
+    # Fallback: per-sprint check (one JQL per board sprint) when single-query returns 0 sprints
+    try:
+        filtered = []
+        for s in out:
+            jql = f'assignee = "{developer_name}" AND sprint = {s["id"]}'
+            if JIRA_PERSON_LOOKUP_JQL_FILTER:
+                jql += f" AND {JIRA_PERSON_LOOKUP_JQL_FILTER}"
+            issues = jira_client.search_issues(jql, maxResults=1, fields=["key"])
+            if issues:
+                filtered.append(s)
+        logger.info("get_sprints_for_board: board_id=%s developer=%s -> %s sprints (per-sprint fallback)", board_id, developer_name, len(filtered))
+        return filtered
+    except Exception as e:
+        logger.warning(f"get_sprints_for_board filter by person board_id={board_id} developer={developer_name}: {e}")
+        return []
 
 
 def get_person_details(developer_name: str, board_id: int, sprint_id: int | None = None, sprint_name: str | None = None) -> dict:
@@ -219,6 +302,18 @@ def get_person_details(developer_name: str, board_id: int, sprint_id: int | None
             fields.append(board_sp_field)
         issues = jira_client.search_issues(jql, maxResults=200, fields=",".join(fields))
         logger.info("get_person_details: JQL returned %s issues (fields requested: %s)", len(issues), ",".join(fields))
+
+        # Sprint total issue count (all assignees) for comparison with Jira board
+        jql_sprint_only = f'sprint = {sprint_id}' if sprint_id else f'sprint = "{sprint_name}"'
+        if JIRA_PERSON_LOOKUP_JQL_FILTER:
+            jql_sprint_only += f" AND {JIRA_PERSON_LOOKUP_JQL_FILTER}"
+        try:
+            sprint_all_issues = jira_client.search_issues(jql_sprint_only, maxResults=1000)
+            sprint_issue_count = len(sprint_all_issues)
+        except Exception as e:
+            logger.debug("get_person_details: sprint total count failed: %s", e)
+            sprint_issue_count = None
+
         status_to_bucket = get_board_status_to_bucket(board_id)
         resolved_sprint_name = sprint_name
         resolved_sprint_id = sprint_id
@@ -254,6 +349,14 @@ def get_person_details(developer_name: str, board_id: int, sprint_id: int | None
                     parent_points_cache[pkey] = _get_story_points(parent_issue, story_points_field=board_sp_field)
                 except Exception as e:
                     logger.debug("Could not fetch parent %s for story points: %s", pkey, e)
+
+        # Exclude subtasks: only show parent-level issues (Story, Task, Bug, etc.)
+        def _is_subtask(issue) -> bool:
+            it = getattr(issue.fields, "issuetype", None)
+            name = (getattr(it, "name", None) or "").strip().lower()
+            return name in ("sub-task", "subtask")
+
+        issues = [i for i in issues if not _is_subtask(i)]
 
         issues_list = []
         by_status = {}
@@ -322,6 +425,7 @@ def get_person_details(developer_name: str, board_id: int, sprint_id: int | None
             "sprint_id": resolved_sprint_id,
             "issues": issues_list,
             "issue_count": len(issues_list),
+            "sprint_issue_count": sprint_issue_count,
             "total_story_points": total_story_points,
             "by_status": by_status,
             "person_breakdown": person_breakdown,
@@ -337,6 +441,7 @@ def get_person_details(developer_name: str, board_id: int, sprint_id: int | None
             "sprint_id": sprint_id,
             "issues": [],
             "issue_count": 0,
+            "sprint_issue_count": None,
             "total_story_points": 0,
             "by_status": {},
             "person_breakdown": {"total": 0, "not_started": 0, "in_progress": 0, "completed": 0, "blocked": 0},

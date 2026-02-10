@@ -1,16 +1,19 @@
-# Daily Jira Report Generator
+# HSTG Digital Jira Report Generator
 
-Generates **daily** Jira sprint reports for multiple teams, posts one consolidated page to Confluence, and notifies a Microsoft Teams channel. Includes **Person Lookup**: open the report and use the link (or embedded box) to look up a developer and see their story points and issues.
+Generates Jira sprint reports for multiple teams, posts one consolidated page to Confluence, and notifies a Microsoft Teams channel. Includes **Developer lookup**: open the report and use the link (or embedded iframe) to look up a developer and see their story points and issues.
 
 ## Features
 
-- **Multi-team reports** from `team_config.py` (board ID per team)
-- **Single Confluence page** — the same page is **updated** each run (no new page per day); sprint tables, spillover, AI summary (Groq or Gemini)
-- **Total Story Points & Velocity** — from Jira Sprint Report when available; **issue-based fallback** when the report API returns 404 (e.g. Jira Cloud)
-- **Story point breakdown** — Not started, In progress, Completed, **Blocked/On hold** (board column or status name)
+- **Multi-team reports** from `team_config.py` (board ID per team, optional members / excluded sprints)
+- **Single Confluence page** — the same page is **updated** each run; sprint details, spillover, verification violations, AI summary (Groq or Gemini)
+- **Sprint details table** — Sprint name, Actual Start/End, Completed story points, Issues in Sprint, Issues in backlog, **Issues with no story points**, Total Story Points
+- **Spillover** — Issues not completed in the last closed sprint (table: Issue, Summary, **Assignee**)
+- **Blockers section (AI)** — **Issues on Backlog** and **Issues on Hold** as separate subsections with one-line summaries
+- **Jira Verification Violations** — Doughnut chart by type + **Per-issue details** table (Issue, Status, **Assignee**, Violations). Rules are status-dependent: In Progress → +1 AC only; In Test → +1 AC + PR link; Ready for Production / Resolved → all 7 (PR link, branch cleanup, Concourse, rollback, evidence labels, time logged)
+- **Story point breakdown** (Developer lookup) — Not started, In progress, Completed, Blocked/On hold (board column or status name)
 - **Teams notification** with Confluence link (date in IST)
-- **Person Lookup** — link at bottom of Confluence page (and optional iframe); type name, pick team/sprint, fetch to see details
-- **Cloud Scheduler** — run the report every **Monday 9 AM IST** (configurable)
+- **Developer lookup** — Link and optional iframe on Confluence; type name, pick team/sprint, fetch to see story points and issue list
+- **Cloud Scheduler** — Run the report on a schedule (e.g. Monday 9 AM IST; configurable)
 
 ## Prerequisites
 
@@ -47,6 +50,7 @@ Edit `.env` and set at least:
 | `CONFLUENCE_USER` | For report | Confluence user email |
 | `CONFLUENCE_TOKEN` | For report | Confluence API token |
 | `CONFLUENCE_SPACE_KEY` | For report | Space key (e.g. `HGD`) |
+| `VELOCITY_DASHBOARD_URL` | Optional | Link under the Velocity heading (replaces inline table) |
 | `TEAMS_WEBHOOK` | For report | Teams incoming webhook URL |
 | `LLM_PROVIDER` | For report | `groq` or `gemini` |
 | `GROQ_API_KEY` | If groq | Groq API key |
@@ -77,10 +81,10 @@ Use `--debug` so the app runs in a single process (Flask dev server). That can a
 
 | What you want | Open in browser |
 |---------------|------------------|
-| **Individual Person Lookup** (textbox, sprint dropdown, fetch) | http://localhost:8080/ or http://localhost:8080/person |
+| **Developer lookup** (name, team/sprint, fetch) | http://localhost:8080/ or http://localhost:8080/person |
 | **Run the report manually** | http://localhost:8080/report |
 
-For the Person Lookup to appear on the Confluence page when you deploy, set `APP_BASE_URL=http://localhost:8080` in `.env` when testing locally (optional). In production you’ll set `APP_BASE_URL` to your Cloud Function URL.
+For Developer lookup to appear on the Confluence page when deployed, set `APP_BASE_URL` in `.env` (e.g. `http://localhost:8080` locally, or your Cloud Function URL in production).
 
 ### Step 5: Deploy to Google Cloud (production)
 
@@ -104,7 +108,7 @@ This will:
    APP_BASE_URL=https://REGION-PROJECT.cloudfunctions.net/FUNCTION_NAME
    ```
 
-   Then run `./deploy.sh` again so the function gets `APP_BASE_URL`. The Confluence report will then show the **Look up a person** section at the bottom (link and optional embedded iframe).
+   Then run `./deploy.sh` again so the function gets `APP_BASE_URL`. The Confluence report will then show the **Developer lookup** section (link and optional embedded iframe).
 
 **Optional:** Change schedule in `.env` before deploying:
 
@@ -124,10 +128,10 @@ Use `main.tf` and `terraform.tfvars` (copy from `terraform.tfvars.example`) to p
    Either by Cloud Scheduler (Monday 9 AM IST) or by you (e.g. `python main.py` or http://localhost:8080/report). The app posts one Confluence page with all teams’ sections.
 
 2. **You open the Confluence page**
-   From the link in Teams or from your Confluence space. You see the full report (date, teams, then each team’s sprint table, spillover, AI summary).
+   From the link in Teams or from your Confluence space. You see the full report: date, teams included, Developer lookup link, then per team — sprint details, naming alerts (if any), Jira Verification Violations (doughnut + per-issue table), spillover, and AI summary (Blockers: Issues on Backlog, Issues on Hold).
 
-3. **Look up a person**
-   Scroll to the bottom of the Confluence page. Use **"Open Person Lookup in a new tab"** (recommended; Confluence often blocks iframes). On the Person Lookup page: type the developer name, select team and sprint, click **Fetch from Jira** to see story points (Total, Not started, In progress, Completed, Blocked/On hold) and the issue list.
+3. **Developer lookup**
+   Scroll to the bottom of the Confluence page. Use **"Open Developer lookup in a new tab"** (recommended; Confluence often blocks iframes). Type the developer name, select team and sprint, click **Fetch from Jira** to see story points (Total, Not started, In progress, Completed, Blocked/On hold) and the issue list.
 
 ---
 
@@ -140,8 +144,8 @@ Use `main.tf` and `terraform.tfvars` (copy from `terraform.tfvars.example`) to p
 ├── team_config.py          # Teams, board IDs, optional members
 ├── jira_api/
 │   ├── jira_sprint.py      # Sprint info, spillover, velocity, story points (Agile API)
-│   ├── jira_issues.py      # Issue fetch, team members, story points, verification
-│   └── verification_helpers.py
+│   ├── jira_issues.py      # Issue fetch, team members, story points, backlog/on-hold, verification
+│   └── verification_helpers.py  # Status-dependent checklist (+1 AC, PR link, evidence, etc.)
 ├── report/
 │   ├── report_builder.py   # Build team reports and consolidated Confluence content
 │   └── llm_report.py       # LLM and prompt for AI summary
@@ -165,20 +169,22 @@ Use `main.tf` and `terraform.tfvars` (copy from `terraform.tfvars.example`) to p
 
 ## Configuration
 
-- **JQL filter (team report):** `JIRA_CUSTOM_JQL_FILTER` in `team_config.py` is used for the main report (excludes resolved/canceled, empty assignee, sub-tasks). This drives **Issues in Sprint** (count of parent issues in the sprint that are not resolved/canceled and have an assignee) and the issue list for the AI summary.
-- **Velocity (story points):** Each team's section includes a **Velocity** table (last 5 closed sprints: Commitment | Completed + Average). No JQL filter is used for velocity — all issues in each sprint are fetched; **Commitment** = total story points of parent issues only; **Completed** = story points of resolved parent issues. When the Jira Sprint Report API is available it is used; otherwise these values are computed from issues (e.g. on Jira Cloud where the report API returns 404).
+- **JQL filter:** `JIRA_CUSTOM_JQL_FILTER` in `team_config.py` is applied where relevant (e.g. report JQL, spillover fallback). Team report uses sprint + optional members; **Issues in Sprint** counts parent issues only (no subtasks).
+- **Sprint metrics dashboard:** Set `VELOCITY_DASHBOARD_URL` in `.env` to show a **Sprint metrics dashboard** link on the report.
 - **Sprint naming:** Report warns if the name doesn’t match `PI<X> S<X> Squad_Name`; it does not change behavior.
 - **Rate limiting:** 15-second delay between teams when generating the report.
-- **Confluence page:** Fixed title **"Daily Jira Status Report - All Teams"**. Each run **updates** that page if it exists; otherwise a new page is created.
+- **Confluence page:** Fixed title **"HSTG Digital Jira status report"**. Each run updates that page if it exists; otherwise a new page is created.
+- **Jira Verification Violations:** Per team: **doughnut chart** (counts by type) and **Per-issue details** table (Issue, Status, Assignee, Violations). Violation types: Missing +1 AC comment, Missing PR link, No time logged, No dev/local evidence, Branch Cleanup not mentioned, Concourse link not pasted, Rollback strategy not mentioned. PR link is detected in comments (including ADF), issuelinks, or Development/remotelinks.
+- **Developer lookup:** Story point breakdowns (Sprint and This person's) are shown as **doughnut charts** alongside the cards.
 - **Logging:** Sprint report 404s and board config lookups are logged at DEBUG level; set `logging.getLogger("jira_api.jira_sprint").setLevel(logging.DEBUG)` to see them.
 
 ---
 
 ## Troubleshooting
 
-### "Failed to load developers" on Person Lookup page
+### "Failed to load developers" on Developer lookup page
 
-The page now shows the real error (e.g. in the Developer/Team area). Common causes:
+The page shows the error in the Developer/Team area. Common causes:
 
 - **Jira credentials:** Ensure `JIRA_USER_NAME` and `JIRA_TOKEN` in `.env` are correct and the user has access to the boards in `team_config.py`.
 - **Network:** If the app runs in a restricted environment, Jira API calls may fail; check firewall/proxy.

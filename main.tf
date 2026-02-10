@@ -31,15 +31,15 @@ variable "function_name" {
 }
 
 variable "schedule" {
-  description = "Cron schedule for Cloud Scheduler (default: daily at 9 AM)"
+  description = "Cron schedule for Cloud Scheduler (default: Monday and Thursday 9 AM IST)"
   type        = string
-  default     = "0 9 * * *"
+  default     = "0 9 * * 1,4"
 }
 
 variable "time_zone" {
   description = "Timezone for the scheduler"
   type        = string
-  default     = "America/Chicago"
+  default     = "Asia/Kolkata"
 }
 
 # Environment variables - pass as TF_VAR_* or use terraform.tfvars

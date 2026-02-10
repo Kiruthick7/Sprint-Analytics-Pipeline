@@ -1,4 +1,5 @@
 """Jira issue fetching, team members, and markdown helpers."""
+import re
 import logging
 
 from config import jira_client, JIRA_SERVER, JIRA_STORY_POINTS_FIELD
@@ -7,6 +8,109 @@ from team_config import JIRA_CUSTOM_JQL_FILTER
 from jira_api.verification_helpers import check_verification_checklist
 
 logger = logging.getLogger(__name__)
+
+
+def _strip_html(text, max_len: int = 400) -> str:
+    """Strip HTML tags and normalize whitespace; truncate to max_len. Handles ADF dict or string."""
+    if text is None:
+        return ""
+    if isinstance(text, dict):
+        text = text.get("plain", "") or text.get("content", "") or str(text)
+    s = re.sub(r"<[^>]+>", " ", str(text))
+    s = " ".join(s.split())
+    return s[:max_len] + "..." if len(s) > max_len else s
+
+
+def _is_blocked_status(status_id: str | None, status_name: str, status_to_bucket: dict[str, str]) -> bool:
+    """True if this status is Blocked/On Hold (board column config or status name fallback)."""
+    if status_to_bucket.get(str(status_id)) == "blocked":
+        return True
+    name = (status_name or "").lower().strip()
+    return name in ("blocked", "on hold", "onhold", "waiting") or "blocked" in name or "on hold" in name
+
+
+def get_blocked_issues_with_context(
+    sprint_id: int | None,
+    sprint_name: str | None,
+    status_to_bucket: dict[str, str],
+) -> list[dict]:
+    """Issues in Blocked/On Hold for this sprint with comment context. Uses status_to_bucket and status name fallback."""
+    out = []
+    try:
+        if sprint_id:
+            jql = f"sprint = {sprint_id}"
+        elif sprint_name:
+            jql = f'sprint = "{sprint_name}"'
+        else:
+            return out
+        if JIRA_CUSTOM_JQL_FILTER:
+            jql += f" AND {JIRA_CUSTOM_JQL_FILTER}"
+        issues = jira_client.search_issues(jql, maxResults=200, fields=["summary", "status"])
+        for issue in issues:
+            status_obj = issue.fields.status
+            status_name = status_obj.name if status_obj else "—"
+            status_id = getattr(status_obj, "id", None)
+            if status_id is None and status_obj:
+                raw = (getattr(issue, "raw", None) or {}).get("fields", {}).get("status")
+                status_id = raw.get("id") if isinstance(raw, dict) else None
+            if not _is_blocked_status(status_id, status_name, status_to_bucket):
+                continue
+            try:
+                comments = jira_client.comments(issue.key)
+                bodies = [_strip_html(getattr(c, "body", None) or "", 200) for c in list(comments)[-3:]]
+                comments_snippet = " | ".join(b for b in bodies if b).strip() or "No comments."
+            except Exception as e:
+                logger.debug("Comments for %s: %s", issue.key, e)
+                comments_snippet = "Comments not available."
+            out.append({
+                "key": issue.key,
+                "summary": (issue.fields.summary or "")[:100],
+                "status_name": status_name,
+                "comments_snippet": comments_snippet,
+            })
+        logger.info("get_blocked_issues_with_context: sprint=%s -> %s blocked", sprint_name or sprint_id, len(out))
+    except Exception as e:
+        logger.warning("get_blocked_issues_with_context: %s", e)
+    return out
+
+
+def get_sprint_issues_by_status_with_context(
+    sprint_id: int | None,
+    sprint_name: str | None,
+    status: str,
+) -> list[dict]:
+    """Issues in sprint with given status (e.g. BACKLOG, ON HOLD), with comment context. Parent issues only."""
+    out = []
+    try:
+        if sprint_id:
+            jql = f"sprint = {sprint_id} AND status = \"{status}\" AND issuetype NOT IN subTaskIssueTypes()"
+        elif sprint_name:
+            jql = f'sprint = "{sprint_name}" AND status = "{status}" AND issuetype NOT IN subTaskIssueTypes()'
+        else:
+            return out
+        if JIRA_CUSTOM_JQL_FILTER:
+            jql += f" AND {JIRA_CUSTOM_JQL_FILTER}"
+        issues = jira_client.search_issues(jql, maxResults=200, fields=["summary", "status"])
+        for issue in issues:
+            status_obj = issue.fields.status
+            status_name = status_obj.name if status_obj else "—"
+            try:
+                comments = jira_client.comments(issue.key)
+                bodies = [_strip_html(getattr(c, "body", None) or "", 200) for c in list(comments)[-3:]]
+                comments_snippet = " | ".join(b for b in bodies if b).strip() or "No comments."
+            except Exception as e:
+                logger.debug("Comments for %s: %s", issue.key, e)
+                comments_snippet = "Comments not available."
+            out.append({
+                "key": issue.key,
+                "summary": (issue.fields.summary or "")[:100],
+                "status_name": status_name,
+                "comments_snippet": comments_snippet,
+            })
+        logger.info("get_sprint_issues_by_status_with_context: sprint=%s status=%s -> %s issues", sprint_name or sprint_id, status, len(out))
+    except Exception as e:
+        logger.warning("get_sprint_issues_by_status_with_context: %s", e)
+    return out
 
 
 def escape_markdown_table_cell(text: str, max_length: int = 100) -> str:
@@ -50,6 +154,67 @@ def _build_jql_for_team(sprint_name: str, team_config: dict) -> str:
     return jql
 
 
+def get_sprint_issue_count(
+    sprint_id: int | None, sprint_name: str | None, *, use_custom_filter: bool = False
+) -> int:
+    """Total issues in the sprint. use_custom_filter=False: parent issues only (matches Jira board total, includes resolved)."""
+    if sprint_id:
+        jql = f"sprint = {sprint_id}"
+    elif sprint_name:
+        jql = f'sprint = "{sprint_name}"'
+    else:
+        return 0
+    if use_custom_filter and JIRA_CUSTOM_JQL_FILTER:
+        jql += f" AND {JIRA_CUSTOM_JQL_FILTER}"
+    else:
+        jql += " AND issuetype NOT IN subTaskIssueTypes()"
+    try:
+        issues = jira_client.search_issues(jql, maxResults=1000, fields=["key"])
+        return len(issues)
+    except Exception as e:
+        logger.warning("get_sprint_issue_count: %s", e)
+        return 0
+
+
+def get_sprint_backlog_status_count(sprint_id: int | None, sprint_name: str | None) -> int:
+    """Count issues in the sprint with status BACKLOG (not yet started). Matches Jira view 'sprint = X AND status = BACKLOG'."""
+    if sprint_id:
+        jql = f"sprint = {sprint_id} AND status = \"BACKLOG\" AND issuetype NOT IN subTaskIssueTypes()"
+    elif sprint_name:
+        jql = f'sprint = "{sprint_name}" AND status = "BACKLOG" AND issuetype NOT IN subTaskIssueTypes()'
+    else:
+        return 0
+    try:
+        issues = jira_client.search_issues(jql, maxResults=1000, fields=["key"])
+        return len(issues)
+    except Exception as e:
+        logger.warning("get_sprint_backlog_status_count: %s", e)
+        return 0
+
+
+def get_sprint_issues_no_story_points_count(
+    sprint_id: int | None,
+    sprint_name: str | None,
+    story_points_field: str | None = None,
+) -> int:
+    """Count issues in the sprint (parent only) that have no story points (0 or empty)."""
+    if sprint_id:
+        jql = f"sprint = {sprint_id} AND issuetype NOT IN subTaskIssueTypes()"
+    elif sprint_name:
+        jql = f'sprint = "{sprint_name}" AND issuetype NOT IN subTaskIssueTypes()'
+    else:
+        return 0
+    field = story_points_field or JIRA_STORY_POINTS_FIELD
+    if not field:
+        return 0
+    try:
+        issues = jira_client.search_issues(jql, maxResults=1000, fields=[field])
+        return sum(1 for i in issues if _get_story_points(i, story_points_field=field) == 0)
+    except Exception as e:
+        logger.warning("get_sprint_issues_no_story_points_count: %s", e)
+        return 0
+
+
 def _parse_story_point_value(raw) -> float:
     """Parse a story point value from API (number, string, or dict like {'value': 3})."""
     if raw is None:
@@ -66,29 +231,23 @@ def _parse_story_point_value(raw) -> float:
 
 
 def _get_story_points(issue, story_points_field: str | None = None) -> float:
-    """Get story points from issue using the field from Jira (board config or JIRA_STORY_POINTS_FIELD). Reads issue.fields then issue.raw['fields']."""
+    """Story points from issue (board config or JIRA_STORY_POINTS_FIELD)."""
     field = story_points_field or JIRA_STORY_POINTS_FIELD
     if not field:
-        logger.debug("_get_story_points: no field configured (board or JIRA_STORY_POINTS_FIELD)")
         return 0.0
-
     raw = getattr(issue.fields, field, None)
     if raw is not None:
         v = _parse_story_point_value(raw)
         if v >= 0:
-            logger.debug("_get_story_points: %s -> %s (from issue.fields.%s)", issue.key, v, field)
             return v
-
     raw_top = getattr(issue, "raw", None) or {}
     fields_dict = raw_top.get("fields") if isinstance(raw_top, dict) else {}
     if isinstance(fields_dict, dict):
         raw = fields_dict.get(field)
         if raw is not None:
             v = _parse_story_point_value(raw)
-            logger.debug("_get_story_points: %s -> %s (from issue.raw['fields'].%s)", issue.key, v, field)
-            return v
-
-    logger.debug("_get_story_points: %s -> 0 (field=%s not in issue.fields or raw['fields'])", issue.key, field)
+            if v >= 0:
+                return v
     return 0.0
 
 
@@ -96,7 +255,7 @@ def fetch_issues_for_team(team_name: str, team_config: dict, sprint_name: str) -
     """Fetch Jira issues for the team; return (context_markdown, issue_count, verification_violations, total_story_points)."""
     jql = _build_jql_for_team(sprint_name, team_config)
     logger.info(f"Fetching issues for team {team_name} with JQL: {jql}")
-    fields = ["summary", "status", "assignee", "reporter"]
+    fields = ["summary", "status", "assignee", "reporter", "issuelinks", "remotelinks"]
     if JIRA_STORY_POINTS_FIELD:
         fields.append(JIRA_STORY_POINTS_FIELD)
     try:

@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Individual Person – Jira Lookup</title>
+  <title>Developer lookup – Jira</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <style>
     * { box-sizing: border-box; }
     body {
@@ -14,8 +15,11 @@
       background: #f4f5f7;
       color: #172b4d;
     }
-    h1 { margin-top: 0; font-size: 1.5rem; }
-    .subtitle { color: #5e6c84; margin-top: 4px; font-size: 14px; }
+    /* Typography: consistent heading hierarchy — bold, size, underline where appropriate */
+    h1 { margin-top: 0; font-size: 1.5rem; font-weight: 700; color: #172b4d; letter-spacing: -0.01em; border-bottom: 2px solid #dfe1e6; padding-bottom: 8px; }
+    h2 { font-size: 1.25rem; font-weight: 700; color: #172b4d; margin: 1.25em 0 0.5em 0; text-decoration: underline; }
+    h3 { font-size: 0.9375rem; font-weight: 700; color: #172b4d; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #ebecf0; padding-bottom: 4px; }
+    .subtitle { color: #5e6c84; margin-top: 4px; font-size: 0.875rem; font-style: italic; }
     .card {
       background: #fff;
       border-radius: 8px;
@@ -66,9 +70,12 @@
     button:disabled { background: #a5adba; cursor: not-allowed; }
 
     /* Story points summary (Jira-style) */
-    .points-section { margin-bottom: 24px; }
-    .points-section h3 { font-size: 14px; font-weight: 600; color: #5e6c84; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 0.5px; }
+    .points-section { margin-bottom: 28px; }
+    .points-section h3 { font-size: 0.9375rem; font-weight: 700; color: #172b4d; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #ebecf0; padding-bottom: 4px; }
     .points-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    .points-with-chart { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; margin-bottom: 16px; }
+    .points-chart-wrap { flex-shrink: 0; width: 300px; height: 300px; }
+    .points-chart-wrap canvas { display: block; max-width: 100%; max-height: 100%; }
     .point-box {
       min-width: 56px;
       padding: 10px 14px;
@@ -96,7 +103,7 @@
     .meta-sub { color: #5e6c84; font-size: 13px; }
     .issues-table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 14px; }
     .issues-table th, .issues-table td { text-align: left; padding: 12px 14px; border-bottom: 1px solid #ebecf0; }
-    .issues-table th { background: #f4f5f7; font-weight: 600; color: #5e6c84; font-size: 12px; text-transform: uppercase; letter-spacing: 0.3px; }
+    .issues-table th { background: #f4f5f7; font-weight: 700; color: #172b4d; font-size: 13px; text-transform: uppercase; letter-spacing: 0.3px; }
     .issues-table tbody tr:hover { background: #fafbfc; }
     .issues-table tbody tr:nth-child(even) { background: #fafbfc; }
     .issues-table tbody tr:nth-child(even):hover { background: #f4f5f7; }
@@ -152,11 +159,11 @@
     </div>
   </div>
 
-  <div class="card" id="main-card">
-    <h1>Individual Person Details</h1>
+  <div class="card" id="main-card" style="text-align: center;">
+    <h1>Developer lookup</h1>
     <p class="subtitle">Search by developer name, then pick team and sprint to fetch Jira details and story points.</p>
 
-    <div class="row">
+    <div class="row" style="justify-content: center;">
       <label for="developer">Developer</label>
       <div class="autocomplete-wrap">
         <input type="text" id="developer" placeholder="Type to search..." autocomplete="off">
@@ -196,6 +203,7 @@
     let developers = [];
     let selectedBoardId = null;
     let lastFetchedDeveloper = null;
+    let sprintsLoadedForDeveloper = null;
 
     async function loadDevelopers() {
       const r = await fetch(api('/api/developers'));
@@ -217,22 +225,51 @@
       }
     }
 
+    const POINT_COLORS = { total: '#0052cc', not_started: '#64748b', in_progress: '#2563eb', completed: '#059669', blocked: '#dc2626' };
+
     function renderPointBox(value, label, cssClass) {
       const v = value != null && value !== '' ? Number(value) : 0;
       return '<div class="point-box ' + cssClass + '"><div>' + v + '</div><div class="label">' + escapeHtml(label) + '</div></div>';
     }
 
-    function renderPointsBreakdown(breakdown, title) {
+    function renderPointsBreakdown(breakdown, title, chartId) {
       if (!breakdown) return '';
       return '<div class="points-section">' +
         '<h3>' + escapeHtml(title) + '</h3>' +
+        '<div class="points-with-chart">' +
+        '<div class="points-chart-wrap"><canvas id="' + escapeHtml(chartId) + '" width="200" height="200"></canvas></div>' +
         '<div class="points-row">' +
         renderPointBox(breakdown.total, 'Total', 'total') +
         renderPointBox(breakdown.not_started, 'Not started', 'not-started') +
         renderPointBox(breakdown.in_progress, 'In progress', 'in-progress') +
         renderPointBox(breakdown.completed, 'Completed', 'completed') +
         renderPointBox(breakdown.blocked, 'Blocked/On hold', 'blocked') +
-        '</div></div>';
+        '</div></div></div>';
+    }
+
+    function createDoughnutChart(canvasId, breakdown) {
+      if (!breakdown || !window.Chart) return;
+      const ctx = document.getElementById(canvasId);
+      if (!ctx) return;
+      const ns = Number(breakdown.not_started) || 0;
+      const ip = Number(breakdown.in_progress) || 0;
+      const co = Number(breakdown.completed) || 0;
+      const bl = Number(breakdown.blocked) || 0;
+      const total = ns + ip + co + bl;
+      if (total === 0) return;
+      new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: ['Not started', 'In progress', 'Completed', 'Blocked/On hold'],
+          datasets: [{ data: [ns, ip, co, bl], backgroundColor: [POINT_COLORS.not_started, POINT_COLORS.in_progress, POINT_COLORS.completed, POINT_COLORS.blocked], borderWidth: 0 }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          cutout: '55%',
+          plugins: { legend: { display: false } }
+        }
+      });
     }
 
     const devInput = document.getElementById('developer');
@@ -284,22 +321,44 @@
       teamInput.value = d.team_name;
       selectedBoardId = d.board_id;
       lastFetchedDeveloper = null;
+      sprintsLoadedForDeveloper = d.name;
       clearResults();
       sprintSelect.innerHTML = '<option value="">Loading sprints…</option>';
       fetchBtn.disabled = true;
       showLoading('Loading sprints…');
-      loadSprints(d.board_id);
+      loadSprints(d.board_id, d.name);
     }
 
-    async function loadSprints(boardId) {
+    function clearSprintsIfDeveloperChanged() {
+      const currentName = (devInput.value || '').trim();
+      if (sprintsLoadedForDeveloper !== null && currentName !== sprintsLoadedForDeveloper) {
+        sprintSelect.innerHTML = '<option value="">Select a developer first</option>';
+        teamInput.value = '';
+        teamInput.placeholder = 'Select a developer';
+        selectedBoardId = null;
+        sprintsLoadedForDeveloper = null;
+        fetchBtn.disabled = true;
+      }
+    }
+
+    async function loadSprints(boardId, developerName) {
       try {
-        const r = await fetch(api('/api/sprints', { board_id: boardId }));
+        const name = (developerName || devInput.value || '').trim();
+        const params = { board_id: boardId };
+        if (name) params.developer = name;
+        const r = await fetch(api('/api/sprints', params));
         if (!r.ok) {
           sprintSelect.innerHTML = '<option value="">Failed to load</option>';
+          sprintsLoadedForDeveloper = null;
           return;
         }
         const sprints = await r.json();
+        sprintsLoadedForDeveloper = name || null;
         sprintSelect.innerHTML = '<option value="">Select sprint…</option>';
+        if (sprints.length === 0) {
+          sprintSelect.innerHTML = '<option value="">No sprints for this person</option>';
+          return;
+        }
         let activeFirst = sprints.filter(s => s.state === 'active');
         let future = sprints.filter(s => s.state === 'future');
         let closed = sprints.filter(s => s.state === 'closed');
@@ -318,12 +377,16 @@
 
     devInput.addEventListener('input', () => {
       showDropdown(devInput.value);
+      clearSprintsIfDeveloperChanged();
       if (lastFetchedDeveloper && devInput.value.trim() !== lastFetchedDeveloper) {
         clearResults();
       }
     });
     devInput.addEventListener('focus', () => showDropdown(devInput.value));
-    devInput.addEventListener('blur', () => setTimeout(() => { devList.style.display = 'none'; }, 200));
+    devInput.addEventListener('blur', () => setTimeout(() => {
+      clearSprintsIfDeveloperChanged();
+      devList.style.display = 'none';
+    }, 200));
 
     fetchBtn.addEventListener('click', async () => {
       const name = devInput.value.trim();
@@ -344,16 +407,20 @@
           metaContent.innerHTML =
             '<div class="meta-line"><strong>' + escapeHtml(data.developer_name) + '</strong> · ' +
             escapeHtml(data.team_name) + ' · ' + escapeHtml(data.sprint_name || '') + '</div>' +
-            '<div class="meta-line meta-sub">Issues in this sprint: ' + data.issue_count + '</div>';
+            (data.sprint_issue_count != null
+              ? '<div class="meta-line meta-sub">Sprint total issues: <strong>' + data.sprint_issue_count + '</strong> · This person\'s issues: <strong>' + data.issue_count + '</strong></div>'
+              : '<div class="meta-line meta-sub">This person\'s issues in sprint: <strong>' + data.issue_count + '</strong></div>');
 
           pointsContainer.innerHTML =
-            renderPointsBreakdown(data.sprint_breakdown, 'Sprint story points') +
-            renderPointsBreakdown(data.person_breakdown, 'This person’s story points');
+            renderPointsBreakdown(data.sprint_breakdown, 'Sprint story points', 'chart-sprint') +
+            renderPointsBreakdown(data.person_breakdown, 'This person’s story points', 'chart-person');
+          createDoughnutChart('chart-sprint', data.sprint_breakdown);
+          createDoughnutChart('chart-person', data.person_breakdown);
 
           if (data.issues.length === 0) {
             resultsDiv.innerHTML = '<div class="card"><p class="empty-msg">No issues found for this person in the selected sprint.</p></div>';
           } else {
-            let table = '<div class="card card-table"><table class="issues-table"><thead><tr><th>Key</th><th>Summary</th><th>Status</th><th>Type</th><th>Points</th></tr></thead><tbody>';
+            let table = '<div class="card card-table"><table class="issues-table"><thead><tr><th>Type</th><th>Key</th><th>Summary</th><th>Status</th><th>Points</th></tr></thead><tbody>';
             data.issues.forEach(i => {
               var pillClass = 'default';
               var s = (i.status || '').toLowerCase();
@@ -363,8 +430,8 @@
               else if (s.indexOf('block') !== -1) pillClass = 'blocked';
               else if (s.indexOf('done') !== -1 || s.indexOf('resolved') !== -1) pillClass = 'done';
               var pts = (i.story_points != null && i.story_points !== '' && Number(i.story_points) > 0) ? '<span class="points-num">' + escapeHtml(String(i.story_points)) + '</span>' : '—';
-              table += '<tr><td><a href="' + escapeHtml(i.url) + '" target="_blank" rel="noopener">' + escapeHtml(i.key) + '</a></td><td>' +
-                escapeHtml(i.summary) + '</td><td><span class="status-pill ' + pillClass + '">' + escapeHtml(i.status) + '</span></td><td>' + escapeHtml(i.issuetype) + '</td><td>' + pts + '</td></tr>';
+              table += '<tr><td>' + escapeHtml(i.issuetype) + '</td><td><a href="' + escapeHtml(i.url) + '" target="_blank" rel="noopener">' + escapeHtml(i.key) + '</a></td><td>' +
+                escapeHtml(i.summary) + '</td><td><span class="status-pill ' + pillClass + '">' + escapeHtml(i.status) + '</span></td><td>' + pts + '</td></tr>';
             });
             table += '</tbody></table></div>';
             resultsDiv.innerHTML = table;
@@ -384,6 +451,21 @@
       return div.innerHTML;
     }
 
+    async function loadConfig() {
+      try {
+        const r = await fetch(api('/api/config'));
+        const j = r.ok ? await r.json() : {};
+        const url = (j && j.velocity_dashboard_url) ? j.velocity_dashboard_url.trim() : '';
+        const block = document.getElementById('dashboard-block');
+        const linkP = document.getElementById('dashboard-link-p');
+        if (block && linkP && url) {
+          linkP.innerHTML = '<a href="' + escapeHtml(url) + '" target="_blank" rel="noopener">Open Sprint metrics dashboard</a>';
+          block.style.display = 'block';
+        }
+      } catch (_) {}
+    }
+
+    loadConfig();
     loadDevelopers()
       .then(() => {
         hideLoading();

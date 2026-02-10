@@ -10,6 +10,7 @@ import functions_framework
 
 # Load config first (env + Jira client)
 import config  # noqa: F401 - ensure config is loaded before other imports that use it
+from config import VELOCITY_DASHBOARD_URL
 from team_config import TEAMS_CONFIG, REPORT_CHANNEL_WEBHOOK
 from report.report_builder import (
     generate_team_report,
@@ -37,7 +38,7 @@ def _json_response(data: Any, status: int = 200) -> tuple[str, int, dict]:
 
 
 def _serve_person_html() -> tuple[str, int, dict]:
-    """Serve the Individual Person lookup HTML page."""
+    """Serve the Developer lookup HTML page."""
     path = STATIC_DIR / "person.html"
     if not path.exists():
         return _json_response({"error": "Person lookup UI not found"}, 404)
@@ -74,6 +75,9 @@ def generate_and_send_report(request):
     if path in ("/", "/person", "/index.html", "/person.html"):
         return _serve_person_html()
 
+    if path == "/api/config":
+        return _json_response({"velocity_dashboard_url": VELOCITY_DASHBOARD_URL or ""})
+
     if path == "/api/developers":
         try:
             data = get_all_developers()
@@ -84,10 +88,11 @@ def generate_and_send_report(request):
 
     if path == "/api/sprints":
         board_id = _get_request_arg(request, "board_id")
+        developer = _get_request_arg(request, "developer").strip()
         if not board_id:
             return _json_response({"error": "board_id required"}, 400)
         try:
-            data = get_sprints_for_board(int(board_id))
+            data = get_sprints_for_board(int(board_id), developer_name=developer or None)
             return _json_response(data)
         except Exception as e:
             logger.exception("api/sprints")

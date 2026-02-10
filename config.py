@@ -34,3 +34,6 @@ CONFLUENCE_SPACE_KEY = os.getenv("CONFLUENCE_SPACE_KEY", "")
 
 # Public URL of this app (for links on Confluence report to Individual Person lookup page)
 APP_BASE_URL = os.getenv("APP_BASE_URL", "").rstrip("/")
+
+# Optional: link under "Velocity" heading on report (replaces inline velocity table)
+VELOCITY_DASHBOARD_URL = os.getenv("VELOCITY_DASHBOARD_URL", "").strip()

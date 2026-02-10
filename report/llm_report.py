@@ -34,27 +34,29 @@ except Exception as e:
     raise
 
 daily_scrum_template = PromptTemplate(
-    input_variables=["team_name", "sprint_name", "sprint_features"],
-    template="""
-You are a professional scrum master analyzing the current sprint for Team: {team_name}.
-Sprint: {sprint_name}
+    input_variables=["team_name", "sprint_name", "sprint_features", "backlog_issues_context", "on_hold_issues_context"],
+    template="""You are writing a brief, actionable summary for the Scrum Master, directors, and stakeholders. The report audience needs a clear read on what needs attention—not progress metrics (those come from Jira).
 
-You are provided with a list of Jira issues including issue key, summary, status, assignee, reporter, and recent comments.
+**Team:** {team_name}
+**Sprint:** {sprint_name}
 
-### Overall Progress and Completion Status
-- Summarize overall progress with key metrics and completion status
+**Your task:** Write one section only: **Blockers, Delays or Issues Needing Attention**.
 
-### Blockers, Delays, or Issues Needing Attention
-- List each blocker with issue key and brief description (if any exist)
-- If no blockers, state "No blockers identified"
+Include only these two subsections (use short bullet points; do not add extra blank lines between subsections):
+- **Issues on Backlog:** For each Backlog issue listed below, write one bullet with the Jira key and a one-line summary (use the issue summary and comment excerpts provided). If the list is empty, write "None."
+- **Issues on Hold:** For each On Hold issue listed below, write one bullet with the Jira key and a one-line summary of why it is on hold (use the issue summary and comment excerpts provided). If the list is empty, write "None."
 
-### Risks and Areas Needing Updates
-- Highlight risks, dependencies, and areas needing attention
+Do not include "Delays" or "Risks & dependencies" sections at all.
 
-Do not include code or SQL interpretation.
-If there is insufficient detail to summarize, clearly state what is missing and ask for updates.
+**Issues on Backlog (use this to write the Issues on Backlog bullets):**
+{backlog_issues_context}
 
-Use the following issue data for context only (do not output a table):
+**Issues on Hold (use this to write the Issues on Hold bullets):**
+{on_hold_issues_context}
+
+**Style:** Plain, professional language. One line break between list items; no extra gaps. No code, no SQL, no tables.
+
+**Issue data (for context only):**
 {sprint_features}
 """,
 )

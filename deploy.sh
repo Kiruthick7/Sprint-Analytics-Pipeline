@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Deploy Jira Daily Report as Cloud Function + Cloud Scheduler (Monday 9 AM IST).
+# Deploy Jira Daily Report as Cloud Function + Cloud Scheduler (Monday and Thursday 9 AM IST).
 # See README "How to run" → Step 5 for full steps. Requires .env with GCP_*, Jira, Confluence, Teams, LLM.
 
 set -e  # Exit on error
@@ -65,8 +65,8 @@ echo -e "\n${GREEN}Cloud Function deployed successfully!${NC}"
 echo -e "Function URL: ${FUNCTION_URL}"
 
 # Cloud Scheduler: run the REPORT (not the person lookup). Hit /report so the function runs report generation.
-# Schedule: every week Monday 9 AM IST (cron 1 = Monday; use 0=Sun, 2=Tue, ... 6=Sat)
-SCHEDULE_CRON="${SCHEDULE_CRON:-0 9 * * 1}"
+# Schedule: Monday and Thursday 9 AM IST (cron: 1=Monday, 4=Thursday)
+SCHEDULE_CRON="${SCHEDULE_CRON:-0 9 * * 1,4}"
 SCHEDULE_TIMEZONE="${SCHEDULE_TIMEZONE:-Asia/Kolkata}"
 REPORT_URL="${FUNCTION_URL}/report"
 
@@ -100,7 +100,7 @@ echo -e "  Name: ${CLOUD_FUNCTION_NAME}"
 echo -e "  Region: ${GCP_REGION}"
 echo -e "  URL: ${FUNCTION_URL}"
 echo -e "  Person Lookup: ${FUNCTION_URL}/ or ${FUNCTION_URL}/person"
-echo -e "  Schedule: Weekly Monday 9:00 AM ${SCHEDULE_TIMEZONE} (cron: ${SCHEDULE_CRON})"
+echo -e "  Schedule: Monday & Thursday 9:00 AM ${SCHEDULE_TIMEZONE} (cron: ${SCHEDULE_CRON})"
 echo -e "\n${BLUE}To test the report manually:${NC}"
 echo -e "  curl ${REPORT_URL}"
 echo -e "\n${BLUE}To view logs:${NC}"
