@@ -93,6 +93,8 @@ These secrets are used by the GitHub Actions workflow when it runs the report.
 | `GROQ_API_KEY` | If groq | Groq API key |
 | `GEMINI_API_KEY` | If gemini | Gemini/Google AI key |
 | `JIRA_SERVER` | No | Jira base URL (default: `https://hy-vee.atlassian.net`) |
+| **`APP_BASE_URL`** | For report links | URL of your Developer lookup app (Render/Railway) **with no trailing slash**. Needed so the Confluence report shows the “Developer lookup” link. |
+| **`VELOCITY_DASHBOARD_URL`** | Optional | URL for the “Sprint metrics dashboard” link on the report. |
 
 3. Save each secret. Do **not** put these in the repo code or in a committed file.
 

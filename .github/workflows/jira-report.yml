@@ -1,6 +1,6 @@
 # Optional: run Jira report on Mon & Thu 9 AM IST without using GCP.
-# Add repo secrets: JIRA_USER_NAME, JIRA_TOKEN, TEAMS_WEBHOOK, CONFLUENCE_BASE_URL,
-# CONFLUENCE_USER, CONFLUENCE_TOKEN, CONFLUENCE_SPACE_KEY, LLM_PROVIDER, GROQ_API_KEY or GEMINI_API_KEY.
+# Add repo secrets: JIRA_*, CONFLUENCE_*, TEAMS_WEBHOOK, LLM_*, GROQ/GEMINI_API_KEY.
+# For Developer lookup + Sprint metrics links in the report: APP_BASE_URL, VELOCITY_DASHBOARD_URL.
 name: Jira Sprint Report
 
 on:
@@ -37,4 +37,6 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          VELOCITY_DASHBOARD_URL: ${{ secrets.VELOCITY_DASHBOARD_URL }}
         run: python main.py
