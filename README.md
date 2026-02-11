@@ -2,6 +2,8 @@
 
 Generates Jira sprint reports for multiple teams, posts one consolidated page to Confluence, and notifies a Microsoft Teams channel. Includes **Developer lookup**: open the report and use the link (or embedded iframe) to look up a developer and see their story points and issues.
 
+[![Jira Sprint Report](https://github.com/Kiruthick7/Jira_Status_Report_Tool/actions/workflows/jira-report.yml/badge.svg?event=workflow_dispatch)](https://github.com/Kiruthick7/Jira_Status_Report_Tool/actions/workflows/jira-report.yml)
+
 ## Features
 
 - **Multi-team reports** from `team_config.py` (board ID per team, optional members / excluded sprints)
