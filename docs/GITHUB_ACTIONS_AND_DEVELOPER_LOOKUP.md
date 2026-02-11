@@ -18,6 +18,47 @@ After setup you will have:
 
 ---
 
+## Why not GitHub Pages?
+
+**GitHub Pages only serves static files** (HTML, CSS, JavaScript). It does not run any server or backend. There is no Python, no environment variables at runtime, and no API routes.
+
+The **Developer lookup** page needs a **backend** that:
+
+- Calls **Jira** with credentials (`JIRA_USER_NAME`, `JIRA_TOKEN`) to:
+  - List developers (assignees from each team’s sprint) → `/api/developers`
+  - List sprints for a board → `/api/sprints`
+  - Fetch a person’s story points and issues → `/api/person`
+- Uses **team config** (e.g. `team_config.py` / board IDs) and keeps secrets out of the browser.
+
+That logic runs in your **Python app**. GitHub Pages cannot run it. So we need a host that runs the app (Render, Railway, Cloud Run, etc.).
+
+**Could we use GitHub Pages for the UI and something else for the API?**  
+Yes: you could put the **static** HTML/JS on Pages and deploy **only the API** (e.g. as a serverless function or a small service) elsewhere. The page would then call that API URL from JavaScript. You’d still need a backend somewhere (Render, a Cloud Function, etc.); Pages would only serve the frontend. That’s more setup (CORS, two URLs, wiring the frontend to the API URL), so this guide uses a single deployment (Render) that serves both the page and the APIs.
+
+---
+
+## Faster, always-on alternative to Render (recommended)
+
+Render’s **free tier** spins down the app after ~15 minutes of no traffic. The first request after that has a **cold start** (30–60 seconds). To get a **faster** site that **does not go down** when idle, you need a host that keeps the app running.
+
+**Best option: Railway (Hobby plan, ~$5/month)**
+
+- **Always on:** On the Hobby plan you can **disable “Serverless”** (sleep) per service, so the app stays running 24/7. No cold starts.
+- **Fast:** Good response times; deploy is similar to Render (connect repo, set env vars, deploy).
+- **Cost:** About $5/month (Hobby); you pay for usage within the plan.
+
+| Option | Always on? | Cold start on free? | Cost (always-on) |
+|--------|------------|----------------------|-------------------|
+| **Railway (Hobby)** | Yes (disable Serverless) | N/A | ~$5/mo |
+| **Render (free)** | No (spins down ~15 min) | Yes, 30–60 s | Free |
+| **Render (paid)** | Yes | No | ~$7+/mo |
+| **Fly.io** | Yes (if you run a machine 24/7) | No once running | Pay per use, ~$3–5/mo for a tiny VM |
+| **Google Cloud Run (min instances = 1)** | Yes | No | Pay for 1 idle instance (~$10–20/mo) |
+
+**Recommendation:** Use **Railway** with the Hobby plan and **Serverless (sleep) turned off** for the Developer lookup service. Steps are in **Part 3b** below. If you prefer to stay on Render, upgrade to a **paid** web service so the instance stays up and does not spin down.
+
+---
+
 ## Part 1: GitHub repository and secrets
 
 ### Step 1.1: Push your code to GitHub
@@ -188,15 +229,62 @@ You do not have to use this for the schedule (GitHub Actions already runs the re
 
 ---
 
+## Part 3b: Host on Railway (always-on, no spin-down) — recommended for speed
+
+Use this instead of (or after) Part 3 if you want the Developer lookup to stay up 24/7 with no cold starts. You need a **Railway account** and the **Hobby plan** (~$5/month) so you can turn off sleep.
+
+### Step 3b.1: Create a Railway project from GitHub
+
+1. Go to [railway.app](https://railway.app) and sign in (GitHub).
+2. Click **New Project** → **Deploy from GitHub repo**.
+3. Select your Jira report repo and the branch (e.g. `main`). Railway will create a new service.
+
+### Step 3b.2: Configure the service
+
+1. Open the new service → **Settings** (or **Variables**).
+2. **Build:**
+   - **Builder:** Nixpacks (default) or set **Build Command** to: `pip install -r requirements.txt`
+3. **Start:**
+   - **Start Command:** `functions_framework --target=generate_and_send_report --port=$PORT`
+   - Railway sets `PORT`; the app must listen on it.
+
+### Step 3b.3: Add environment variables
+
+In the same service, go to **Variables** and add the same variables as in the Render section (and in GitHub Secrets):
+
+- `JIRA_USER_NAME`, `JIRA_TOKEN`, `JIRA_SERVER`
+- `CONFLUENCE_BASE_URL`, `CONFLUENCE_USER`, `CONFLUENCE_TOKEN`, `CONFLUENCE_SPACE_KEY`
+- `TEAMS_WEBHOOK`
+- `LLM_PROVIDER`, `GROQ_API_KEY` or `GEMINI_API_KEY`
+
+Mark secrets as **sensitive** where possible. Do **not** set `APP_BASE_URL` until after the first deploy (then set it to your Railway URL with no trailing slash).
+
+### Step 3b.4: Turn off sleep (always-on)
+
+1. In the service, go to **Settings** → **Deploy** (or **Serverless** / **Sleep**).
+2. Find **Serverless** or **Sleep** or **Scale to zero**.
+3. **Disable** it so the service stays running 24/7. (This option is available on the Hobby plan; free tier keeps sleep on.)
+
+### Step 3b.5: Deploy and get the URL
+
+1. Trigger a deploy (push to the repo or **Deploy** in Railway). Wait until it’s **Active**.
+2. Open **Settings** → **Networking** (or **Generate domain**) and add a **public domain**. Railway will give you a URL like `https://your-service.up.railway.app`.
+3. Open that URL in a browser — you should see the Developer lookup page.
+4. Set **`APP_BASE_URL`** in Variables to that URL (no trailing slash), then redeploy so the Confluence report’s “Developer lookup” link uses it.
+
+GitHub Actions is unchanged: the **report** still runs on schedule from the workflow. Only the **Developer lookup** host is Railway instead of Render, and it stays on so the site is faster and doesn’t go down when idle.
+
+---
+
 ## Part 4: Use the Developer lookup
 
-1. Open the Render URL (e.g. `https://jira-developer-lookup.onrender.com/` or `.../person`).
+1. Open your app URL (Render, e.g. `https://jira-developer-lookup.onrender.com/`, or Railway, e.g. `https://your-service.up.railway.app/`, or `.../person`).
 2. In **Developer**, type a name and choose from the list (loaded from Jira).
 3. **Team** will fill automatically; choose a **Sprint** from the dropdown.
 4. Click **Fetch from Jira**.
 5. You should see story points (Total, Not started, In progress, Completed, Blocked/On hold) and the issue list.
 
-If “Failed to load developers” appears, check Render’s **Logs** and that all Jira/Confluence/Teams env vars are set correctly on Render.
+If “Failed to load developers” appears, check the host’s **Logs** (Render or Railway) and that all Jira/Confluence/Teams env vars are set correctly.
 
 ---
 
@@ -205,17 +293,17 @@ If “Failed to load developers” appears, check Render’s **Logs** and that a
 - [ ] Repo is on GitHub and code is pushed.
 - [ ] All required **repository secrets** are set (Jira, Confluence, Teams, LLM).
 - [ ] **Actions** → **Jira Sprint Report** → **Run workflow** runs successfully and the report appears in Confluence/Teams.
-- [ ] **Render** Web Service is created with correct **Build** and **Start** commands and uses `$PORT`.
-- [ ] Same env vars (and secrets) are set on Render.
-- [ ] Developer lookup page loads at the Render URL and “Fetch from Jira” works.
-- [ ] `APP_BASE_URL` is set on Render to that URL (no trailing slash) so the Confluence report shows the correct Developer lookup link.
+- [ ] **Render** or **Railway** service is created with correct **Build** and **Start** commands and uses `$PORT`.
+- [ ] Same env vars (and secrets) are set on the host. On Railway (Hobby), Serverless/sleep is **disabled** so the app stays on.
+- [ ] Developer lookup page loads at the app URL and “Fetch from Jira” works.
+- [ ] `APP_BASE_URL` is set to that URL (no trailing slash) so the Confluence report shows the correct Developer lookup link.
 
 ---
 
 ## Notes
 
-- **Render free tier:** The service may spin down after ~15 minutes of no traffic. The first request after that can take 30–60 seconds (“cold start”). After that it stays fast until the next spin-down.
-- **Secrets in two places:** GitHub Secrets are used only by the Actions workflow when it runs the report. Render env vars are used by the live app for Developer lookup (and for `/report` if you call it from the browser). You can use the same values in both; keep them secret and never commit them.
-- **Alternative hosts:** You can use **Railway**, **Fly.io**, or **Google Cloud Run** (as a service) instead of Render. The idea is the same: deploy this repo as a web service, set the same env vars, and use `--port=$PORT` (or the platform’s equivalent) so the Developer lookup and optional `/report` work at the given URL.
+- **Render free tier:** The service may spin down after ~15 minutes of no traffic. The first request after that can take 30–60 seconds (“cold start”). For a **faster, always-on** site, use **Railway (Hobby)** and disable Serverless (Part 3b), or use Render/Cloud Run paid with the app always running.
+- **Secrets in two places:** GitHub Secrets are used only by the Actions workflow when it runs the report. The host’s env vars (Render or Railway) are used by the live app for Developer lookup (and for `/report` if you call it from the browser). You can use the same values in both; keep them secret and never commit them.
+- **Alternative hosts:** **Railway (Hobby)** is recommended for always-on and speed. You can also use **Fly.io** (pay per use, small always-on VM) or **Google Cloud Run** with min instances = 1. Deploy this repo as a web service, set the same env vars, and use `--port=$PORT` (or the platform’s equivalent).
 
 For more ways to run the report and use Developer lookup, see [RUNNING_THE_REPORT.md](RUNNING_THE_REPORT.md).

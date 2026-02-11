@@ -15,6 +15,7 @@ COPY jira_api/ jira_api/
 COPY report/ report/
 COPY clients/ clients/
 COPY person/ person/
+COPY utils/ utils/
 COPY static/ static/
 
 ENV PORT=8080
