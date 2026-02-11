@@ -1,0 +1,40 @@
+# Optional: run Jira report on Mon & Thu 9 AM IST without using GCP.
+# Add repo secrets: JIRA_USER_NAME, JIRA_TOKEN, TEAMS_WEBHOOK, CONFLUENCE_BASE_URL,
+# CONFLUENCE_USER, CONFLUENCE_TOKEN, CONFLUENCE_SPACE_KEY, LLM_PROVIDER, GROQ_API_KEY or GEMINI_API_KEY.
+name: Jira Sprint Report
+
+on:
+  schedule:
+    # 9:00 AM IST = 03:30 UTC; 1=Mon, 4=Thu
+    - cron: '30 3 * * 1,4'
+  workflow_dispatch: # allow manual run from Actions tab
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run report
+        env:
+          JIRA_SERVER: ${{ secrets.JIRA_SERVER || 'https://hy-vee.atlassian.net' }}
+          JIRA_USER_NAME: ${{ secrets.JIRA_USER_NAME }}
+          JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+          TEAMS_WEBHOOK: ${{ secrets.TEAMS_WEBHOOK }}
+          CONFLUENCE_BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
+          CONFLUENCE_USER: ${{ secrets.CONFLUENCE_USER }}
+          CONFLUENCE_TOKEN: ${{ secrets.CONFLUENCE_TOKEN }}
+          CONFLUENCE_SPACE_KEY: ${{ secrets.CONFLUENCE_SPACE_KEY }}
+          LLM_PROVIDER: ${{ secrets.LLM_PROVIDER || 'groq' }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        run: python main.py

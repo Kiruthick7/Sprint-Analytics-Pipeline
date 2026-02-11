@@ -1,6 +1,4 @@
 """Build team reports and consolidated Confluence/Teams content."""
-import base64
-import io
 import logging
 import re
 from datetime import datetime
@@ -8,12 +6,15 @@ from zoneinfo import ZoneInfo
 
 from config import JIRA_SERVER, APP_BASE_URL, VELOCITY_DASHBOARD_URL
 from jira_api.jira_sprint import (
+    derive_previous_sprint_name,
     get_active_sprint_info,
     get_allowed_sprint_info,
-    get_last_closed_sprint_id,
+    get_closed_sprint_info_by_name_and_year,
+    get_last_closed_sprint_info,
+    get_last_closed_sprint_info_allowed,
     get_sprint_report_spillover,
-    get_sprint_total_story_points,
     get_sprint_story_points_from_issues,
+    get_sprint_total_story_points,
     get_spillover_via_jql,
     get_board_story_points_field,
     validate_sprint_name_format,
@@ -25,31 +26,12 @@ from jira_api.jira_issues import (
     get_sprint_issue_count,
     get_sprint_backlog_status_count,
     get_sprint_issues_no_story_points_count,
-    escape_markdown_table_cell,
 )
-
 from report.llm_report import sprint_chain
+from report.violations_chart import aggregate_violation_counts, violations_summary_table
+from utils.markdown import escape_markdown_table_cell
 
 logger = logging.getLogger(__name__)
-
-VIOLATION_LABELS = [
-    "Missing +1 AC confirmation comment from developer",
-    "Missing PR link (Code Review step)",
-    "No time logged (Post-Merge step)",
-    "No dev/local evidence attached (Post-Merge step)",
-    "Branch Cleanup not mentioned",
-    "Concourse link not pasted in Jira (concourse-ci.hy-vee.cloud/builds)",
-    "Rollback strategy not mentioned",
-]
-VIOLATION_SHORT = [
-    "Missing +1 AC comment",
-    "Missing PR link",
-    "No time logged",
-    "No dev/local evidence",
-    "Branch Cleanup not mentioned",
-    "Concourse link not pasted",
-    "Rollback strategy not mentioned",
-]
 
 
 def _fmt_pts(value) -> str | int | float:
@@ -65,144 +47,8 @@ def _fmt_pts(value) -> str | int | float:
     return v
 
 
-def _aggregate_violation_counts(violations: list) -> dict:
-    """Return counts per violation type (key = full label, value = count)."""
-    counts = {label: 0 for label in VIOLATION_LABELS}
-    for v in violations:
-        for violation_text in v.get("violations") or []:
-            if violation_text in counts:
-                counts[violation_text] += 1
-    return counts
-
-
-def _violations_doughnut_chart_base64(counts: dict, size_inches: float = 6.5) -> str | None:
-    """Generate a doughnut chart for violation counts; return base64 PNG string or None if matplotlib unavailable."""
-    total = sum(counts.get(l, 0) for l in VIOLATION_LABELS)
-    if total == 0:
-        return None
-    try:
-        import matplotlib
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-        from matplotlib.patches import Circle
-        import matplotlib.patheffects as path_effects
-    except ImportError:
-        logger.debug("matplotlib not available for violations chart")
-        return None
-    labels_list = []
-    sizes_list = []
-    for i, label in enumerate(VIOLATION_LABELS):
-        c = counts.get(label, 0)
-        if c == 0:
-            continue
-        labels_list.append(VIOLATION_SHORT[i])
-        sizes_list.append(c)
-    if not sizes_list:
-        return None
-    palette = ["#2563eb", "#7c3aed", "#059669", "#ea580c", "#dc2626", "#0891b2", "#ca8a04"]
-    colors = [palette[i % len(palette)] for i in range(len(labels_list))]
-    fig, ax = plt.subplots(figsize=(size_inches, size_inches))
-    fig.patch.set_facecolor("none")
-    ax.set_facecolor("none")
-    pie_result = ax.pie(
-        sizes_list,
-        labels=None,
-        autopct="%1.0f%%",
-        startangle=90,
-        colors=colors,
-        pctdistance=0.75,
-        wedgeprops=dict(width=0.55, edgecolor="white", linewidth=1.2),
-    )
-    wedges = pie_result[0]
-    autotexts = pie_result[2] if len(pie_result) > 2 else []
-    for t in autotexts:
-        t.set_fontsize(9)
-        t.set_color("white")
-        t.set_fontweight("bold")
-    centre_circle = Circle((0, 0), 0.45, facecolor="none", edgecolor="none")
-    ax.add_artist(centre_circle)
-    centre_text = ax.text(0, 0, f"Total\n{total}", ha="center", va="center", fontsize=11, weight="bold", color="white")
-    centre_text.set_path_effects([path_effects.withStroke(foreground="black", linewidth=2)])
-    leg = ax.legend(wedges, labels_list, loc="center left", bbox_to_anchor=(1.02, 0.5), fontsize=10, labelcolor="white", framealpha=0.9)
-    for text in leg.get_texts():
-        text.set_path_effects([path_effects.withStroke(foreground="black", linewidth=2)])
-        text.set_fontweight("bold")
-    ax.axis("equal")
-    plt.tight_layout()
-    buf = io.BytesIO()
-    plt.savefig(buf, format="png", dpi=120, bbox_inches="tight", facecolor="none", edgecolor="none", transparent=True)
-    plt.close(fig)
-    buf.seek(0)
-    return base64.b64encode(buf.read()).decode("ascii")
-
-
-_VIOLATIONS_BAR_CHARS = ("█", "▓", "▒", "░", "□")
-_STACKED_BAR_WIDTH = 48
-
-
-def _violations_stacked_bar(counts: dict) -> str:
-    """One-line stacked horizontal bar: each segment = one violation type (proportional). Renders in Confluence."""
-    total = sum(counts.get(l, 0) for l in VIOLATION_LABELS)
-    if total == 0:
-        return ""
-    rows = []
-    for i, label in enumerate(VIOLATION_LABELS):
-        c = counts.get(label, 0)
-        if c == 0:
-            continue
-        pct = c / total
-        short = VIOLATION_SHORT[i]
-        rows.append((short, c, round(100 * pct), pct))
-    rows.sort(key=lambda x: -x[1])
-    width_used = 0
-    seg_widths = []
-    for short, c, pct, pct_float in rows:
-        w = max(1, round(_STACKED_BAR_WIDTH * pct_float))
-        seg_widths.append((short, c, pct, w))
-        width_used += w
-    if width_used > _STACKED_BAR_WIDTH:
-        seg_widths[-1] = (seg_widths[-1][0], seg_widths[-1][1], seg_widths[-1][2], max(1, seg_widths[-1][3] - (width_used - _STACKED_BAR_WIDTH)))
-    bar_parts = [_VIOLATIONS_BAR_CHARS[i] * w for i, (_, _, _, w) in enumerate(seg_widths)]
-    bar_line = "".join(bar_parts)[:_STACKED_BAR_WIDTH].ljust(_STACKED_BAR_WIDTH)
-    legend = " · ".join(f"{_VIOLATIONS_BAR_CHARS[i]} {short} ({c}, {pct}%)" for i, (short, c, pct, _) in enumerate(seg_widths))
-    return f"`{bar_line}`\n\n*{legend}*\n\n"
-
-
-def _violations_summary_table(counts: dict) -> str:
-    """Violation counts: doughnut chart (when matplotlib available) or stacked-bar + table + summary."""
-    total = sum(counts.get(l, 0) for l in VIOLATION_LABELS)
-    if total == 0:
-        return "*No verification violations in this sprint.*\n\n"
-    out = ""
-    b64 = _violations_doughnut_chart_base64(counts)
-    if b64:
-        out = (
-            f'<p style="margin:0;padding:0"><img src="data:image/png;base64,{b64}" alt="Jira Verification Violations" '
-            'style="max-width:520px;height:auto;display:block;vertical-align:top;" /></p>\n'
-        )
-    else:
-        out = _violations_stacked_bar(counts)
-    rows = []
-    for i, label in enumerate(VIOLATION_LABELS):
-        c = counts.get(label, 0)
-        if c == 0:
-            continue
-        pct = round(100 * c / total)
-        short = VIOLATION_SHORT[i]
-        rows.append((short, c, pct))
-    rows.sort(key=lambda x: -x[1])
-    lines = [
-        "| **Violation type** | **Count** | **% of total** |",
-        "|--------------------|-----------|----------------|",
-    ]
-    for short, c, pct in rows:
-        lines.append(f"| {short} | **{c}** | **{pct}%** |")
-    return out + "\n".join(lines) + "\n"
-
-
 def generate_team_report(team_name: str, team_config: dict) -> tuple[str | None, str | None, str, list]:
     """Generate report for a specific team. Returns (report_markdown, error_message, naming_warning, verification_violations)."""
-    logger.info(f"Generating report for team: {team_name}")
     try:
         board_id = team_config["board_id"]
         sprint_info = get_active_sprint_info(board_id)
@@ -216,7 +62,6 @@ def generate_team_report(team_name: str, team_config: dict) -> tuple[str | None,
                 included_sprint_names=included,
             )
             if not sprint_info:
-                logger.info(f"Skipping team {team_name}: active sprint was excluded and no allowed sprint found")
                 return None, "⏭️ No allowed sprint for this team (excluded sprints only).", "", []
 
         if not sprint_info:
@@ -224,21 +69,18 @@ def generate_team_report(team_name: str, team_config: dict) -> tuple[str | None,
             return None, "⚠️ No active sprint found for team {team_name}", "", []
 
         sprint_name = sprint_info.get("name") or "—"
-        logger.info(f"Active sprint for {team_name}: {sprint_name}")
 
         sprint_name_valid, sprint_name_message = validate_sprint_name_format(sprint_name)
         naming_warning = ""
         if not sprint_name_valid:
             naming_warning = f"⚠️ Sprint name '{sprint_name}' does not match PI<X> S<X> Squad_Name. {sprint_name_message}"
-            logger.warning(naming_warning)
 
-        issues_markdown, issue_count, verification_violations, total_story_points = fetch_issues_for_team(team_name, team_config, sprint_name)
+        sprint_id = sprint_info.get("id")
+        issues_markdown, issue_count, verification_violations, total_story_points = fetch_issues_for_team(team_name, team_config, sprint_name, sprint_id=sprint_id)
         if not issues_markdown:
-            logger.warning(f"No issues found for team {team_name}")
             return None, f"ℹ️ No issues found for team {team_name} in sprint {sprint_name}", "", []
 
-        backlog_count = get_sprint_backlog_status_count(sprint_info.get("id"), sprint_name)
-        sprint_id = sprint_info.get("id")
+        backlog_count = get_sprint_backlog_status_count(sprint_id, sprint_name)
         backlog_list = get_sprint_issues_by_status_with_context(sprint_id, sprint_name, "BACKLOG")
         on_hold_list = get_sprint_issues_by_status_with_context(sprint_id, sprint_name, "ON HOLD")
 
@@ -253,7 +95,6 @@ def generate_team_report(team_name: str, team_config: dict) -> tuple[str | None,
         backlog_issues_context = _issues_context(backlog_list, "(No issues on Backlog in this sprint.)")
         on_hold_issues_context = _issues_context(on_hold_list, "(No issues on Hold in this sprint.)")
 
-        logger.info(f"Generating AI summary for team {team_name} with {issue_count} issues")
         result = sprint_chain.invoke({
             "team_name": team_name,
             "sprint_name": sprint_name,
@@ -264,7 +105,7 @@ def generate_team_report(team_name: str, team_config: dict) -> tuple[str | None,
         report = result.content if hasattr(result, "content") else str(result)
         report = re.sub(r"\n{3,}", "\n\n", report)
 
-        detected_members = team_config.get("members") or get_team_members_from_sprint(sprint_name, board_id)
+        detected_members = team_config.get("members") or get_team_members_from_sprint(sprint_name, board_id, sprint_id=sprint_id)
 
         sprint_issue_count = get_sprint_issue_count(sprint_id, sprint_name, use_custom_filter=False)
         total_pts_from_sprint = (
@@ -305,22 +146,44 @@ def generate_team_report(team_name: str, team_config: dict) -> tuple[str | None,
             f"| Team Members | {', '.join(detected_members)} |\n\n"
         )
 
-        last_closed_sprint_id = get_last_closed_sprint_id(board_id)
-        if last_closed_sprint_id:
+        excluded = team_config.get("excluded_sprint_names") or []
+        included = team_config.get("included_sprint_names")
+        current_year = datetime.now().year
+        last_closed_sprint = None
+        if excluded or included:
+            previous_sprint_name = derive_previous_sprint_name(sprint_name)
+            if previous_sprint_name:
+                last_closed_sprint = get_closed_sprint_info_by_name_and_year(board_id, previous_sprint_name, current_year)
+            if not last_closed_sprint:
+                last_closed_sprint = get_last_closed_sprint_info_allowed(board_id, excluded, included, year=current_year)
+        else:
+            last_closed_sprint = get_last_closed_sprint_info(board_id, year=current_year)
+        spillover = []
+        if last_closed_sprint:
+            last_closed_sprint_id = last_closed_sprint["id"]
             spillover, try_jql_fallback = get_sprint_report_spillover(board_id, last_closed_sprint_id)
             if try_jql_fallback:
                 spillover = get_spillover_via_jql(last_closed_sprint_id)
-            if spillover:
-                header += "### **Spillover from previous sprint**\n\n*Issues not completed in the last closed sprint (carried over):*\n\n"
-                header += "| **Issue** | **Summary** | **Assignee** |\n|------------|-------------|----------|\n"
-                for s in spillover:
-                    key = s.get("key") or "—"
-                    summary = escape_markdown_table_cell(s.get("summary") or "", 80)
-                    assignee = escape_markdown_table_cell(str(s.get("assignee") or "—"), 40)
-                    header += f"| [{key}]({JIRA_SERVER}/browse/{key}) | {summary} | {assignee} |\n"
-                header += "\n"
-            else:
-                header += "### **Spillover from previous sprint**\n\n*No spillover issues from the last closed sprint.*\n\n"
+        prev_sprint_name = (last_closed_sprint or {}).get("name") or ""
+        prev_sprint_date = (last_closed_sprint or {}).get("endDate") or ""
+        if spillover:
+            header += "### **Spillover from previous sprint**\n\n"
+            name_label = prev_sprint_name or "last closed sprint"
+            date_label = prev_sprint_date or "—"
+            header += f"*Issues not completed in the last closed sprint ({name_label}, closed {date_label}) (carried over):*\n\n"
+            header += "| **Issue** | **Summary** | **Assignee** | **Label** |\n|------------|-------------|----------|------|\n"
+            for s in spillover:
+                key = s.get("key") or "—"
+                summary = escape_markdown_table_cell(s.get("summary") or "", 80)
+                assignee = escape_markdown_table_cell(str(s.get("assignee") or "—"), 40)
+                label = escape_markdown_table_cell(str(s.get("label") or ""), 20)
+                header += f"| [{key}]({JIRA_SERVER}/browse/{key}) | {summary} | {assignee} | {label} |\n"
+            header += "\n"
+        else:
+            prev_label = ""
+            if prev_sprint_name or prev_sprint_date:
+                prev_label = f" ({prev_sprint_name}, closed {prev_sprint_date})" if prev_sprint_name and prev_sprint_date else f" ({prev_sprint_name})" if prev_sprint_name else f" (closed {prev_sprint_date})"
+            header += f"### **Spillover from previous sprint**\n\n*No spillover issues from the last closed sprint{prev_label}.*\n\n"
         header += "---\n\n"
         full_report = header + report
         return full_report, None, naming_warning, verification_violations
@@ -382,9 +245,9 @@ def build_consolidated_report(all_team_reports: list[dict]) -> str:
         if w:
             consolidated += "### **Naming Alerts**\n\n" + f"- {w}\n\n"
         if violations:
-            counts = _aggregate_violation_counts(violations)
+            counts = aggregate_violation_counts(violations)
             consolidated += "### **Jira Verification Violations**\n"
-            consolidated += _violations_summary_table(counts) + "\n"
+            consolidated += violations_summary_table(counts) + "\n"
             consolidated += "### **Per-issue details**\n\n| **Issue** | **Status** | **Assignee** | **Violations** |\n|-----------|------------|----------|----------------|\n"
             for v in violations:
                 key = v.get("issue_key") or "—"
@@ -401,7 +264,7 @@ def build_consolidated_report(all_team_reports: list[dict]) -> str:
     return consolidated
 
 
-CONFLUENCE_PAGE_TITLE = "HSTG Digital Jira status report"
+CONFLUENCE_PAGE_TITLE = "HSTG Digital Sprint status report"
 
 
 def get_confluence_title() -> str:
@@ -420,7 +283,7 @@ def build_teams_message(
     date_str = f"{now.strftime('%B %d, %Y')} {time_12h}"
     teams_included = ", ".join(t["team_name"] for t in all_team_reports)
     link_line = f"🔗 [Open in Confluence]({confluence_url})\n\n" if confluence_url else "Confluence page could not be created (duplicate title or error). Please check Confluence or try again later.\n\n"
-    msg = f"📊 **HSTG Digital Jira status report**\n\n**Date:** {date_str}\n\n{link_line}**Teams Included:** {teams_included}\n"
+    msg = f"📊 **HSTG Digital Sprint status report**\n\n**Date:** {date_str}\n\n{link_line}**Teams Included:** {teams_included}\n"
     error_entries = [f"- {name}: {data['message']}" for name, data in results.get("teams", {}).items() if data.get("status") == "error"]
     if error_entries:
         msg += "\n**Error:**\n" + "\n".join(error_entries)

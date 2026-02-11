@@ -1,0 +1,19 @@
+# Optional: Render Blueprint for one-click deploy.
+# See docs/GITHUB_ACTIONS_AND_DEVELOPER_LOOKUP.md for full steps.
+# After creating the service, add env vars in the Render dashboard (Environment tab).
+
+services:
+  - type: web
+    name: jira-developer-lookup
+    runtime: python
+    plan: free
+
+    buildCommand: pip install -r requirements.txt
+    startCommand: functions_framework --target=generate_and_send_report --port=$PORT
+
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+      # Add the rest in Render Dashboard → Environment:
+      # JIRA_USER_NAME, JIRA_TOKEN, JIRA_SERVER, CONFLUENCE_*, TEAMS_WEBHOOK,
+      # LLM_PROVIDER, GROQ_API_KEY or GEMINI_API_KEY, APP_BASE_URL (after first deploy)

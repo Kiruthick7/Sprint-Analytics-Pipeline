@@ -7,13 +7,13 @@ Generates Jira sprint reports for multiple teams, posts one consolidated page to
 - **Multi-team reports** from `team_config.py` (board ID per team, optional members / excluded sprints)
 - **Single Confluence page** — the same page is **updated** each run; sprint details, spillover, verification violations, AI summary (Groq or Gemini)
 - **Sprint details table** — Sprint name, Actual Start/End, Completed story points, Issues in Sprint, Issues in backlog, **Issues with no story points**, Total Story Points
-- **Spillover** — Issues not completed in the last closed sprint (table: Issue, Summary, **Assignee**)
+- **Spillover** — Issues not completed in the last closed sprint (table: Issue, Summary, **Assignee**, **Label** e.g. tech-debt)
 - **Blockers section (AI)** — **Issues on Backlog** and **Issues on Hold** as separate subsections with one-line summaries
 - **Jira Verification Violations** — Doughnut chart by type + **Per-issue details** table (Issue, Status, **Assignee**, Violations). Rules are status-dependent: In Progress → +1 AC only; In Test → +1 AC + PR link; Ready for Production / Resolved → all 7 (PR link, branch cleanup, Concourse, rollback, evidence labels, time logged)
 - **Story point breakdown** (Developer lookup) — Not started, In progress, Completed, Blocked/On hold (board column or status name)
 - **Teams notification** with Confluence link (date in IST)
 - **Developer lookup** — Link and optional iframe on Confluence; type name, pick team/sprint, fetch to see story points and issue list
-- **Cloud Scheduler** — Run the report on a schedule (e.g. Monday 9 AM IST; configurable)
+- **Cloud Scheduler** — Run the report on a schedule (default: Monday & Thursday 9 AM IST; configurable)
 
 ## Prerequisites
 
@@ -26,6 +26,10 @@ Generates Jira sprint reports for multiple teams, posts one consolidated page to
 ---
 
 ## How to run
+
+**📋 [Step-by-step guide: all ways to run the report + Developer lookup](docs/RUNNING_THE_REPORT.md)** — Run the report (once, web app, GCP, cron, GitHub Actions, HTTP trigger) and how to use the HTML Developer lookup page (enter name, team, sprint → fetch from Jira).
+
+**🚀 [GitHub Actions + host Developer lookup on Render](docs/GITHUB_ACTIONS_AND_DEVELOPER_LOOKUP.md)** — Schedule the report with GitHub Actions (Mon & Thu 9 AM IST) and host the Developer lookup at a public URL (Render free tier).
 
 ### Step 1: Clone and install
 
@@ -110,22 +114,52 @@ This will:
 
    Then run `./deploy.sh` again so the function gets `APP_BASE_URL`. The Confluence report will then show the **Developer lookup** section (link and optional embedded iframe).
 
-**Optional:** Change schedule in `.env` before deploying:
+**Schedule:** Default is **Monday and Thursday 9:00 AM IST** (`0 9 * * 1,4`). To change it, set in `.env` before deploying:
 
 ```bash
-SCHEDULE_CRON="0 9 * * 1"      # 0=Sun, 1=Mon, ... 6=Sat
+SCHEDULE_CRON="0 9 * * 1,4"    # 1=Mon, 4=Thu (0=Sun ... 6=Sat)
 SCHEDULE_TIMEZONE=Asia/Kolkata
 ```
 
-**Alternative: Terraform**  
+**Alternative: Terraform**
 Use `main.tf` and `terraform.tfvars` (copy from `terraform.tfvars.example`) to provision the Cloud Function and Scheduler. Set `teams_webhook`, Confluence vars, and LLM keys in `terraform.tfvars`. The app uses a single Teams webhook for the report link.
+
+---
+
+## Other ways to run the report on a schedule (no Cloud Function + Scheduler)
+
+If you prefer not to use GCP Cloud Function + Cloud Scheduler, you can run the report on **Mon & Thu 9 AM IST** with one of these:
+
+| Option | Best for | Notes |
+|--------|----------|--------|
+| **Cron on a server** | You have a Linux/macOS VM or always-on machine | Run `python main.py` or `curl http://your-app/report` at 9 AM IST Mon & Thu. No cloud scheduler needed. |
+| **GitHub Actions** | Repo is on GitHub; you’re okay running in CI | Scheduled workflow runs at 9 AM IST (e.g. `30 3 * * 1,4` in UTC = 03:30 UTC Mon & Thu). Store secrets in repo secrets and run `python main.py` in the workflow. |
+| **Cloud Run Job + Scheduler** | You want to stay on GCP but not use a Function | Deploy the app as a **Cloud Run Job** (runs to completion). Use Cloud Scheduler to invoke the job at the same cron. |
+| **Other clouds** | You already use AWS/Azure | **AWS:** Lambda + EventBridge schedule. **Azure:** Function App with timer trigger. You’d deploy the same Python app and call the report entrypoint on schedule. |
+
+**Cron example (server / VM):**  
+Use the same cron expression in the server’s timezone (e.g. if the server is in IST):
+
+```bash
+# crontab -e  (Mon & Thu 9:00 AM)
+0 9 * * 1,4 cd /path/to/Jira && /usr/bin/python3 main.py
+```
+
+If the server is in UTC, 9 AM IST = 03:30 UTC:
+
+```bash
+30 3 * * 1,4 cd /path/to/Jira && /usr/bin/python3 main.py
+```
+
+**GitHub Actions:**  
+A workflow is included at `.github/workflows/jira-report.yml` (Mon & Thu 03:30 UTC = 9 AM IST). To use it: add the same env vars as **Secrets** in the repo (e.g. `JIRA_USER_NAME`, `JIRA_TOKEN`, `TEAMS_WEBHOOK`, `CONFLUENCE_*`, `GROQ_API_KEY` or `GEMINI_API_KEY`). You can also trigger the workflow manually from the Actions tab.
 
 ---
 
 ## End-to-end flow
 
 1. **Report is generated**
-   Either by Cloud Scheduler (Monday 9 AM IST) or by you (e.g. `python main.py` or http://localhost:8080/report). The app posts one Confluence page with all teams’ sections.
+   Either by Cloud Scheduler (Mon & Thu 9 AM IST) or by you (e.g. `python main.py` or http://localhost:8080/report). The app posts one Confluence page with all teams’ sections.
 
 2. **You open the Confluence page**
    From the link in Teams or from your Confluence space. You see the full report: date, teams included, Developer lookup link, then per team — sprint details, naming alerts (if any), Jira Verification Violations (doughnut + per-issue table), spillover, and AI summary (Blockers: Issues on Backlog, Issues on Hold).
@@ -139,29 +173,35 @@ Use `main.tf` and `terraform.tfvars` (copy from `terraform.tfvars.example`) to p
 
 ```
 .
-├── main.py                 # HTTP entrypoint: routing, report, Person Lookup API
-├── config.py               # Env and Jira/Confluence config
-├── team_config.py          # Teams, board IDs, optional members
+├── main.py                   # HTTP entrypoint: routing, report, Person Lookup API
+├── config.py                 # Env and Jira/Confluence config
+├── team_config.py            # Teams, board IDs, optional members
 ├── jira_api/
-│   ├── jira_sprint.py      # Sprint info, spillover, velocity, story points (Agile API)
-│   ├── jira_issues.py      # Issue fetch, team members, story points, backlog/on-hold, verification
+│   ├── jira_sprint.py        # Sprint info, spillover, velocity, story points (Agile API)
+│   ├── jira_issues.py        # Issue fetch, team members, story points, backlog/on-hold, verification
 │   └── verification_helpers.py  # Status-dependent checklist (+1 AC, PR link, evidence, etc.)
 ├── report/
-│   ├── report_builder.py   # Build team reports and consolidated Confluence content
-│   └── llm_report.py       # LLM and prompt for AI summary
+│   ├── report_builder.py     # Build team reports and consolidated Confluence content
+│   ├── violations_chart.py  # Verification violations: doughnut chart, stacked bar, summary table
+│   └── llm_report.py        # LLM and prompt for AI summary
 ├── clients/
 │   ├── confluence_client.py # Post/update Confluence page
-│   └── teams_client.py     # Post to Teams webhook
+│   └── teams_client.py       # Post to Teams webhook
 ├── person/
-│   └── person_lookup.py    # Individual Person: developers list, sprints, person details
+│   └── person_lookup.py      # Developer list, sprints, person details (story points by status)
+├── utils/
+│   └── markdown.py           # Markdown/table helpers (e.g. escape for table cells)
 ├── static/
-│   └── person.html         # Person Lookup UI (embedded on Confluence)
+│   └── person.html           # Person Lookup UI (embedded on Confluence)
+├── docs/
+│   ├── RUNNING_THE_REPORT.md                      # All ways to run report + Developer lookup
+│   └── GITHUB_ACTIONS_AND_DEVELOPER_LOOKUP.md     # GitHub Actions + host lookup on Render
 ├── requirements.txt
 ├── .env.example
-├── deploy.sh               # Deploy Cloud Function + Scheduler (sources .env)
-├── main.tf                 # Optional: Terraform for function + scheduler
+├── deploy.sh                 # Deploy Cloud Function + Scheduler (sources .env)
+├── main.tf                   # Optional: Terraform for function + scheduler
 ├── terraform.tfvars.example
-├── Dockerfile              # Container image for Cloud Run / local
+├── Dockerfile                # Container image for Cloud Run / local
 └── README.md
 ```
 
@@ -173,10 +213,10 @@ Use `main.tf` and `terraform.tfvars` (copy from `terraform.tfvars.example`) to p
 - **Sprint metrics dashboard:** Set `VELOCITY_DASHBOARD_URL` in `.env` to show a **Sprint metrics dashboard** link on the report.
 - **Sprint naming:** Report warns if the name doesn’t match `PI<X> S<X> Squad_Name`; it does not change behavior.
 - **Rate limiting:** 15-second delay between teams when generating the report.
-- **Confluence page:** Fixed title **"HSTG Digital Jira status report"**. Each run updates that page if it exists; otherwise a new page is created.
+- **Confluence page:** Fixed title **"HSTG Digital Sprint status report"**. Each run updates that page if it exists; otherwise a new page is created.
 - **Jira Verification Violations:** Per team: **doughnut chart** (counts by type) and **Per-issue details** table (Issue, Status, Assignee, Violations). Violation types: Missing +1 AC comment, Missing PR link, No time logged, No dev/local evidence, Branch Cleanup not mentioned, Concourse link not pasted, Rollback strategy not mentioned. PR link is detected in comments (including ADF), issuelinks, or Development/remotelinks.
 - **Developer lookup:** Story point breakdowns (Sprint and This person's) are shown as **doughnut charts** alongside the cards.
-- **Logging:** Sprint report 404s and board config lookups are logged at DEBUG level; set `logging.getLogger("jira_api.jira_sprint").setLevel(logging.DEBUG)` to see them.
+- **Logging:** Most operational logs are at DEBUG. Use `logging.getLogger("jira_api.jira_sprint").setLevel(logging.DEBUG)` (or similar) to see spillover/board details.
 
 ---
 

@@ -27,7 +27,6 @@ logger = logging.getLogger(__name__)
 
 if not REPORT_CHANNEL_WEBHOOK:
     logger.warning("TEAMS_WEBHOOK not set - report link will not be sent to Teams")
-logger.info("Teams configured: %s", list(TEAMS_CONFIG.keys()))
 
 # Optional: path to static HTML for person lookup (default next to main.py)
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -119,18 +118,15 @@ def generate_and_send_report(request):
     if path != "/report" and method != "POST":
         return _json_response({"error": "Not found", "path": path}, 404)
 
-    logger.info("Starting Daily Jira Report Generation")
     results = {"timestamp": None, "teams": {}, "scrum_master": {"sent": False, "message": ""}}
     results["timestamp"] = datetime.now().isoformat()
     all_team_reports = []
 
     try:
         for idx, (team_name, team_config) in enumerate(TEAMS_CONFIG.items()):
-            logger.info("%s\nProcessing team: %s\n%s", "=" * 80, team_name, "=" * 80)
             report, error, naming_warning, verification_violations = generate_team_report(team_name, team_config)
 
             if idx < len(TEAMS_CONFIG) - 1:
-                logger.info("Waiting 15 seconds before next team to avoid rate limits...")
                 time.sleep(15)
 
             if error:
@@ -158,7 +154,6 @@ def generate_and_send_report(request):
             }
 
         if all_team_reports:
-            logger.info("Building single Confluence page (all teams)")
             consolidated = build_consolidated_report(all_team_reports)
             confluence_url = post_to_confluence(get_confluence_title(), consolidated)
             teams_message = build_teams_message(all_team_reports, confluence_url, results)
@@ -185,7 +180,6 @@ def generate_and_send_report(request):
         summary += f"✅ Teams included: {success_count}/{total_teams}\n"
         for team_name, team_result in results["teams"].items():
             summary += f"  • {team_name}: {team_result['message']}\n"
-        logger.info("Report summary: %s", summary.replace("\n", " "))
         overall_success = success_count == total_teams and (results["scrum_master"]["sent"] or not REPORT_CHANNEL_WEBHOOK)
         return (summary, 200 if overall_success else 207)
 
@@ -206,6 +200,5 @@ if __name__ == "__main__":
             self.environ: dict[str, Any] = {}
             self.path: str = "/report"  # so local test runs report, not person UI
 
-    logger.info("Running in local test mode")
     result, status = generate_and_send_report(MockRequest())  # type: ignore
     print(f"\nResult ({status}):\n{result}")

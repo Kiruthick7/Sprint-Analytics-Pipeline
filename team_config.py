@@ -12,7 +12,7 @@ TEAMS_CONFIG = {
         "em_name": "SRINIDHI",
         "members": [],
         "excluded_sprint_names": ["Dig Exp | Azkaban", "S4 | GS Phase 1"],
-        "included_sprint_names": ["PI2 S* Dig Exp"],
+        "included_sprint_names": ["PI* S* Dig Exp"],
     },
     "Ecom Expansion": {
         "board_id": 1413,

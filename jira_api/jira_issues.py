@@ -4,6 +4,7 @@ import logging
 
 from config import jira_client, JIRA_SERVER, JIRA_STORY_POINTS_FIELD
 from team_config import JIRA_CUSTOM_JQL_FILTER
+from utils.markdown import escape_markdown_table_cell
 
 from jira_api.verification_helpers import check_verification_checklist
 
@@ -68,7 +69,6 @@ def get_blocked_issues_with_context(
                 "status_name": status_name,
                 "comments_snippet": comments_snippet,
             })
-        logger.info("get_blocked_issues_with_context: sprint=%s -> %s blocked", sprint_name or sprint_id, len(out))
     except Exception as e:
         logger.warning("get_blocked_issues_with_context: %s", e)
     return out
@@ -107,25 +107,18 @@ def get_sprint_issues_by_status_with_context(
                 "status_name": status_name,
                 "comments_snippet": comments_snippet,
             })
-        logger.info("get_sprint_issues_by_status_with_context: sprint=%s status=%s -> %s issues", sprint_name or sprint_id, status, len(out))
     except Exception as e:
         logger.warning("get_sprint_issues_by_status_with_context: %s", e)
     return out
 
 
-def escape_markdown_table_cell(text: str, max_length: int = 100) -> str:
-    """Escape and clean text for markdown table cell."""
-    if not text:
-        return ""
-    text = str(text).replace("|", "\\|").replace("\n", " ").replace("\r", " ")
-    text = " ".join(text.split())
-    return text[:max_length] + "..." if len(text) > max_length else text
-
-
-def get_team_members_from_sprint(sprint_name: str, board_id: int) -> list[str]:
-    """Auto-detect team members from active sprint (assignees of issues in the current sprint)."""
+def get_team_members_from_sprint(sprint_name: str, board_id: int, sprint_id: int | None = None) -> list[str]:
+    """Auto-detect team members from active sprint (assignees of issues in the current sprint). Use sprint_id when available so the same name in different years matches only one sprint."""
     try:
-        jql = f'sprint = "{sprint_name}"'
+        if sprint_id is not None:
+            jql = f"sprint = {sprint_id}"
+        else:
+            jql = f'sprint = "{sprint_name}"'
         if JIRA_CUSTOM_JQL_FILTER:
             jql += f' AND {JIRA_CUSTOM_JQL_FILTER}'
         issues = jira_client.search_issues(jql, maxResults=500)
@@ -134,21 +127,23 @@ def get_team_members_from_sprint(sprint_name: str, board_id: int) -> list[str]:
             for issue in issues
             if issue.fields.assignee and issue.fields.assignee.displayName
         }
-        members_list = sorted(team_members)
-        logger.info(f"Auto-detected {len(members_list)} team members from active sprint: {members_list}")
-        return members_list
+        return sorted(team_members)
     except Exception as e:
         logger.error(f"Failed to auto-detect team members from sprint: {e}")
         return []
 
 
-def _build_jql_for_team(sprint_name: str, team_config: dict) -> str:
-    """Build JQL for team issues (sprint + optional members filter + custom filter)."""
+def _build_jql_for_team(sprint_name: str, team_config: dict, sprint_id: int | None = None) -> str:
+    """Build JQL for team issues (sprint + optional members filter + custom filter). Use sprint_id when available so the same name in different years (e.g. PI2 S3 Dig Exp 2025 vs 2026) matches only one sprint."""
+    if sprint_id is not None:
+        sprint_clause = f"sprint = {sprint_id}"
+    else:
+        sprint_clause = f'sprint = "{sprint_name}"'
     if team_config.get("members"):
         members_jql = " OR ".join([f'assignee = "{m}"' for m in team_config["members"]])
-        jql = f'sprint = "{sprint_name}" AND ({members_jql})'
+        jql = f"{sprint_clause} AND ({members_jql})"
     else:
-        jql = f'sprint = "{sprint_name}"'
+        jql = sprint_clause
     if JIRA_CUSTOM_JQL_FILTER:
         jql += f' AND {JIRA_CUSTOM_JQL_FILTER}'
     return jql
@@ -251,16 +246,16 @@ def _get_story_points(issue, story_points_field: str | None = None) -> float:
     return 0.0
 
 
-def fetch_issues_for_team(team_name: str, team_config: dict, sprint_name: str) -> tuple[str, int, list, int | float]:
-    """Fetch Jira issues for the team; return (context_markdown, issue_count, verification_violations, total_story_points)."""
-    jql = _build_jql_for_team(sprint_name, team_config)
-    logger.info(f"Fetching issues for team {team_name} with JQL: {jql}")
+def fetch_issues_for_team(
+    team_name: str, team_config: dict, sprint_name: str, sprint_id: int | None = None
+) -> tuple[str, int, list, int | float]:
+    """Fetch Jira issues for the team; return (context_markdown, issue_count, verification_violations, total_story_points). Use sprint_id when available so the same sprint name in different years (e.g. 2025 vs 2026) matches only one sprint."""
+    jql = _build_jql_for_team(sprint_name, team_config, sprint_id=sprint_id)
     fields = ["summary", "status", "assignee", "reporter", "issuelinks", "remotelinks"]
     if JIRA_STORY_POINTS_FIELD:
         fields.append(JIRA_STORY_POINTS_FIELD)
     try:
         issues = jira_client.search_issues(jql, maxResults=100, fields=",".join(fields))
-        logger.info(f"Found {len(issues)} issues for team {team_name}")
         lines = []
         verification_violations = []
         total_story_points = 0

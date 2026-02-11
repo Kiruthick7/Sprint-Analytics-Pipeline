@@ -128,13 +128,11 @@ def get_sprint_story_points_breakdown(board_id: int, sprint_id: int | None = Non
             report = get_sprint_report_points_breakdown(board_id, resolved_id)
             if report is not None and report["total"] > 0:
                 out["total"] = report["total"]
-                logger.info("get_sprint_story_points_breakdown: total from report=%s; buckets not_started=%s in_progress=%s completed=%s blocked=%s", out["total"], out["not_started"], out["in_progress"], out["completed"], out["blocked"])
                 return out
         except Exception as e:
             logger.warning("get_sprint_story_points_breakdown (sprint report): %s", e)
 
     out["total"] = issue_based["total"]
-    logger.info("get_sprint_story_points_breakdown: issue-based only total=%s not_started=%s in_progress=%s completed=%s blocked=%s", out["total"], out["not_started"], out["in_progress"], out["completed"], out["blocked"])
     return out
 
 
@@ -247,7 +245,7 @@ def get_sprints_for_board(board_id: int, developer_name: str | None = None) -> l
         person_sprint_ids &= board_sprint_ids
         filtered = [s for s in out if s["id"] in person_sprint_ids]
         if filtered:
-            logger.info("get_sprints_for_board: board_id=%s developer=%s -> %s sprints", board_id, developer_name, len(filtered))
+            logger.debug("get_sprints_for_board: board_id=%s developer=%s -> %s sprints", board_id, developer_name, len(filtered))
             return filtered
     except Exception as e:
         logger.warning(f"get_sprints_for_board (assignee search) board_id={board_id} developer={developer_name}: {e}")
@@ -262,7 +260,7 @@ def get_sprints_for_board(board_id: int, developer_name: str | None = None) -> l
             issues = jira_client.search_issues(jql, maxResults=1, fields=["key"])
             if issues:
                 filtered.append(s)
-        logger.info("get_sprints_for_board: board_id=%s developer=%s -> %s sprints (per-sprint fallback)", board_id, developer_name, len(filtered))
+        logger.debug("get_sprints_for_board: board_id=%s developer=%s -> %s sprints (per-sprint fallback)", board_id, developer_name, len(filtered))
         return filtered
     except Exception as e:
         logger.warning(f"get_sprints_for_board filter by person board_id={board_id} developer={developer_name}: {e}")
@@ -290,7 +288,7 @@ def get_person_details(developer_name: str, board_id: int, sprint_id: int | None
         }
     try:
         board_sp_field = get_board_story_points_field(board_id) or JIRA_STORY_POINTS_FIELD
-        logger.info("get_person_details: developer=%s board_id=%s sprint_id=%s sprint_name=%s story_points_field=%s", developer_name, board_id, sprint_id, sprint_name, board_sp_field or "(none)")
+        logger.debug("get_person_details: developer=%s board_id=%s sprint_id=%s sprint_name=%s story_points_field=%s", developer_name, board_id, sprint_id, sprint_name, board_sp_field or "(none)")
         if sprint_id:
             jql = f'sprint = {sprint_id} AND assignee = "{developer_name}"'
         else:
@@ -301,7 +299,7 @@ def get_person_details(developer_name: str, board_id: int, sprint_id: int | None
         if board_sp_field:
             fields.append(board_sp_field)
         issues = jira_client.search_issues(jql, maxResults=200, fields=",".join(fields))
-        logger.info("get_person_details: JQL returned %s issues (fields requested: %s)", len(issues), ",".join(fields))
+        logger.debug("get_person_details: JQL returned %s issues (fields requested: %s)", len(issues), ",".join(fields))
 
         # Sprint total issue count (all assignees) for comparison with Jira board
         jql_sprint_only = f'sprint = {sprint_id}' if sprint_id else f'sprint = "{sprint_name}"'
@@ -402,11 +400,11 @@ def get_person_details(developer_name: str, board_id: int, sprint_id: int | None
             })
         total_story_points = not_started_pts + in_progress_pts + completed_pts + blocked_pts
         issues_with_points = sum(1 for x in issues_list if (x.get("story_points") or 0) > 0)
-        logger.info("get_person_details: person_breakdown total=%s not_started=%s in_progress=%s completed=%s blocked=%s (issues_with_points=%s/%s)", total_story_points, not_started_pts, in_progress_pts, completed_pts, blocked_pts, issues_with_points, len(issues_list))
+        logger.debug("get_person_details: person_breakdown total=%s not_started=%s in_progress=%s completed=%s blocked=%s (issues_with_points=%s/%s)", total_story_points, not_started_pts, in_progress_pts, completed_pts, blocked_pts, issues_with_points, len(issues_list))
         if total_story_points == 0 and issues and board_sp_field:
             raw_fields = getattr(issues[0], "raw", None) or {}
             field_keys = list((raw_fields.get("fields") or {}).keys()) if isinstance(raw_fields.get("fields"), dict) else []
-            logger.info("get_person_details: story points 0; first issue %s raw['fields'] keys (sample): %s (looking for %s)", issues[0].key, field_keys[:30], board_sp_field)
+            logger.debug("get_person_details: story points 0; first issue %s raw['fields'] keys (sample): %s (looking for %s)", issues[0].key, field_keys[:30], board_sp_field)
         person_breakdown = {
             "total": total_story_points,
             "not_started": not_started_pts,
@@ -417,7 +415,7 @@ def get_person_details(developer_name: str, board_id: int, sprint_id: int | None
         sprint_breakdown = get_sprint_story_points_breakdown(
             board_id, sprint_id=resolved_sprint_id, sprint_name=resolved_sprint_name
         )
-        logger.info("get_person_details: sprint_breakdown total=%s not_started=%s in_progress=%s completed=%s blocked=%s", sprint_breakdown.get("total"), sprint_breakdown.get("not_started"), sprint_breakdown.get("in_progress"), sprint_breakdown.get("completed"), sprint_breakdown.get("blocked"))
+        logger.debug("get_person_details: sprint_breakdown total=%s not_started=%s in_progress=%s completed=%s blocked=%s", sprint_breakdown.get("total"), sprint_breakdown.get("not_started"), sprint_breakdown.get("in_progress"), sprint_breakdown.get("completed"), sprint_breakdown.get("blocked"))
         return {
             "developer_name": developer_name,
             "team_name": team_name,

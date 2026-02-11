@@ -1,0 +1,221 @@
+# Step-by-step: GitHub Actions (report) + Developer lookup hosted and working
+
+This guide gets you to:
+
+1. **Run the sprint report on a schedule** (Monday & Thursday 9 AM IST) using **GitHub Actions**.
+2. **Host the Developer lookup page** so anyone can open a URL, enter developer name / team / sprint, and fetch details from Jira. The app is deployed from your GitHub repo to **Render** (free tier), so the lookup is “hosted” and always available at a public URL.
+
+**Why two parts?** GitHub Actions runs **jobs** (start → run → exit). It does not run a long-lived web server. So:
+
+- **Report:** A scheduled workflow runs `python main.py` (or calls your deployed app’s `/report`).  
+- **Developer lookup:** The same app is **deployed to Render** so the HTML page and APIs (`/api/developers`, `/api/sprints`, `/api/person`) are served at a URL.
+
+After setup you will have:
+
+- **Report:** Runs automatically Mon & Thu 9 AM IST (and manually from the Actions tab).
+- **Developer lookup:** Live at `https://your-app-name.onrender.com/` (or the URL Render gives you).
+- **Confluence:** Can show the “Developer lookup” link pointing to that URL (via `APP_BASE_URL`).
+
+---
+
+## Part 1: GitHub repository and secrets
+
+### Step 1.1: Push your code to GitHub
+
+If the Jira report repo is not on GitHub yet:
+
+1. Create a new repository on GitHub (e.g. `jira-sprint-report`).
+2. In your local project folder:
+   ```bash
+   git remote add origin https://github.com/YOUR_ORG/jira-sprint-report.git
+   git push -u origin main
+   ```
+   (Use your actual org/repo and branch name.)
+
+### Step 1.2: Add repository secrets (for the scheduled report)
+
+These secrets are used by the GitHub Actions workflow when it runs the report.
+
+1. In GitHub: open your repo → **Settings** → **Secrets and variables** → **Actions**.
+2. Click **New repository secret** and add each of these (names must match exactly):
+
+| Secret name | Required | Description |
+|-------------|----------|-------------|
+| `JIRA_USER_NAME` | Yes | Jira user email |
+| `JIRA_TOKEN` | Yes | Jira API token |
+| `TEAMS_WEBHOOK` | Yes | Teams incoming webhook URL |
+| `CONFLUENCE_BASE_URL` | Yes | e.g. `https://your-site.atlassian.net/wiki` |
+| `CONFLUENCE_USER` | Yes | Confluence user email |
+| `CONFLUENCE_TOKEN` | Yes | Confluence API token |
+| `CONFLUENCE_SPACE_KEY` | Yes | Confluence space key (e.g. `HGD`) |
+| `LLM_PROVIDER` | No | `groq` or `gemini` (default: groq) |
+| `GROQ_API_KEY` | If groq | Groq API key |
+| `GEMINI_API_KEY` | If gemini | Gemini/Google AI key |
+| `JIRA_SERVER` | No | Jira base URL (default: `https://hy-vee.atlassian.net`) |
+
+3. Save each secret. Do **not** put these in the repo code or in a committed file.
+
+---
+
+## Part 2: GitHub Actions workflow (scheduled report)
+
+The workflow file is already in the repo at `.github/workflows/jira-report.yml`. It:
+
+- Runs on a **schedule**: 03:30 UTC on Monday and Thursday (= 9:00 AM IST).
+- Can be **run manually**: Actions → Jira Sprint Report → Run workflow.
+
+### Step 2.1: Confirm the workflow file
+
+Open `.github/workflows/jira-report.yml`. It should look like this (you can keep the comment block as-is):
+
+```yaml
+name: Jira Sprint Report
+
+on:
+  schedule:
+    - cron: '30 3 * * 1,4'   # 9 AM IST Mon & Thu
+  workflow_dispatch:
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run report
+        env:
+          JIRA_SERVER: ${{ secrets.JIRA_SERVER || 'https://hy-vee.atlassian.net' }}
+          JIRA_USER_NAME: ${{ secrets.JIRA_USER_NAME }}
+          JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+          TEAMS_WEBHOOK: ${{ secrets.TEAMS_WEBHOOK }}
+          CONFLUENCE_BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
+          CONFLUENCE_USER: ${{ secrets.CONFLUENCE_USER }}
+          CONFLUENCE_TOKEN: ${{ secrets.CONFLUENCE_TOKEN }}
+          CONFLUENCE_SPACE_KEY: ${{ secrets.CONFLUENCE_SPACE_KEY }}
+          LLM_PROVIDER: ${{ secrets.LLM_PROVIDER || 'groq' }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python main.py
+```
+
+### Step 2.2: Run the report once manually
+
+1. In GitHub: **Actions** → **Jira Sprint Report** → **Run workflow** → **Run workflow**.
+2. When the job finishes, open the run and check the “Run report” step for errors.
+3. Confirm in Confluence and Teams that the report and link were posted.
+
+After this, the report will also run automatically every Mon & Thu at 9 AM IST.
+
+---
+
+## Part 3: Host the Developer lookup (deploy app to Render)
+
+Render gives you a public URL where your app runs. That URL serves the Developer lookup page and APIs. You will add the same environment variables (as in GitHub Secrets) to Render so the app can call Jira, Confluence, and Teams.
+
+### Step 3.1: Create a Render account and connect GitHub
+
+1. Go to [render.com](https://render.com) and sign up (or log in).
+2. Connect your GitHub account: **Account Settings** → **Integrations** → connect GitHub and authorize the org/repo that contains this project.
+
+### Step 3.2: Create a new Web Service
+
+1. In the Render dashboard click **New +** → **Web Service**.
+2. Connect the repository that contains this Jira app (e.g. `jira-sprint-report`).
+3. Use the same branch you use for the Actions workflow (e.g. `main`).
+
+### Step 3.3: Configure the Web Service
+
+Set these in the Render form (or in the service’s **Environment** tab after creation):
+
+| Field | Value |
+|-------|--------|
+| **Name** | e.g. `jira-developer-lookup` (any name you like) |
+| **Region** | Choose one close to your users |
+| **Branch** | `main` (or your default branch) |
+| **Runtime** | Python 3 |
+| **Build Command** | `pip install -r requirements.txt` |
+| **Start Command** | `functions_framework --target=generate_and_send_report --port=$PORT` |
+
+Important: **Start Command** must use `$PORT` so Render can route traffic to your app.
+
+### Step 3.4: Add environment variables on Render
+
+In the same Web Service, go to **Environment** and add the same variables you use in the report (same as GitHub Secrets). Add them as **Environment Variables** (or **Secret Files** only if you need a file). Suggested list:
+
+| Key | Value | Notes |
+|-----|--------|--------|
+| `JIRA_USER_NAME` | (your Jira email) | Required |
+| `JIRA_TOKEN` | (your Jira API token) | Required, mark **Secret** |
+| `JIRA_SERVER` | `https://hy-vee.atlassian.net` | Or your Jira base URL |
+| `CONFLUENCE_BASE_URL` | (e.g. https://your-site.atlassian.net/wiki) | Required |
+| `CONFLUENCE_USER` | (Confluence email) | Required |
+| `CONFLUENCE_TOKEN` | (Confluence API token) | Required, Secret |
+| `CONFLUENCE_SPACE_KEY` | (e.g. HGD) | Required |
+| `TEAMS_WEBHOOK` | (Teams webhook URL) | Required, Secret |
+| `LLM_PROVIDER` | `groq` or `gemini` | Optional |
+| `GROQ_API_KEY` | (key) | If using groq, Secret |
+| `GEMINI_API_KEY` | (key) | If using gemini, Secret |
+| `APP_BASE_URL` | **Leave empty for now** | You’ll set it after first deploy |
+
+You can copy these from your local `.env` (never commit `.env`). Mark sensitive values as **Secret** in Render.
+
+### Step 3.5: Deploy
+
+1. Click **Create Web Service**. Render will build and deploy.
+2. Wait until the deploy finishes and the service shows **Live** (green).
+3. Open the service URL (e.g. `https://jira-developer-lookup.onrender.com`). You should see the **Developer lookup** page (title “Developer lookup”, with Developer / Team / Sprint fields).
+
+### Step 3.6: Set APP_BASE_URL (for Confluence link)
+
+1. In Render, open your Web Service → **Environment**.
+2. Add or edit:
+   - **Key:** `APP_BASE_URL`
+   - **Value:** Your Render service URL **with no trailing slash**, e.g. `https://jira-developer-lookup.onrender.com`
+3. Save. Render will redeploy. After that, when the **report** runs (from GitHub Actions), the Confluence page will show the “Developer lookup” link pointing to this URL.
+
+### Step 3.7: (Optional) Allow report to run from the same URL
+
+The same deployed app can also run the report if someone (or a scheduler) opens:
+
+`https://your-app-name.onrender.com/report`
+
+You do not have to use this for the schedule (GitHub Actions already runs the report). If you want to trigger the report from the browser or another scheduler, just open that URL. No extra config is required.
+
+---
+
+## Part 4: Use the Developer lookup
+
+1. Open the Render URL (e.g. `https://jira-developer-lookup.onrender.com/` or `.../person`).
+2. In **Developer**, type a name and choose from the list (loaded from Jira).
+3. **Team** will fill automatically; choose a **Sprint** from the dropdown.
+4. Click **Fetch from Jira**.
+5. You should see story points (Total, Not started, In progress, Completed, Blocked/On hold) and the issue list.
+
+If “Failed to load developers” appears, check Render’s **Logs** and that all Jira/Confluence/Teams env vars are set correctly on Render.
+
+---
+
+## Part 5: Quick checklist
+
+- [ ] Repo is on GitHub and code is pushed.
+- [ ] All required **repository secrets** are set (Jira, Confluence, Teams, LLM).
+- [ ] **Actions** → **Jira Sprint Report** → **Run workflow** runs successfully and the report appears in Confluence/Teams.
+- [ ] **Render** Web Service is created with correct **Build** and **Start** commands and uses `$PORT`.
+- [ ] Same env vars (and secrets) are set on Render.
+- [ ] Developer lookup page loads at the Render URL and “Fetch from Jira” works.
+- [ ] `APP_BASE_URL` is set on Render to that URL (no trailing slash) so the Confluence report shows the correct Developer lookup link.
+
+---
+
+## Notes
+
+- **Render free tier:** The service may spin down after ~15 minutes of no traffic. The first request after that can take 30–60 seconds (“cold start”). After that it stays fast until the next spin-down.
+- **Secrets in two places:** GitHub Secrets are used only by the Actions workflow when it runs the report. Render env vars are used by the live app for Developer lookup (and for `/report` if you call it from the browser). You can use the same values in both; keep them secret and never commit them.
+- **Alternative hosts:** You can use **Railway**, **Fly.io**, or **Google Cloud Run** (as a service) instead of Render. The idea is the same: deploy this repo as a web service, set the same env vars, and use `--port=$PORT` (or the platform’s equivalent) so the Developer lookup and optional `/report` work at the given URL.
+
+For more ways to run the report and use Developer lookup, see [RUNNING_THE_REPORT.md](RUNNING_THE_REPORT.md).

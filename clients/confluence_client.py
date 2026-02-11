@@ -52,7 +52,6 @@ def post_to_confluence(title: str, content: str) -> str | None:
                 update_resp = requests.put(f"{api_url}/{page_id}", json=update_payload, auth=auth, headers=headers, timeout=30)
                 if update_resp.status_code == 200:
                     page_url = f"{wiki_base}/spaces/{CONFLUENCE_SPACE_KEY}/pages/{page_id}"
-                    logger.info(f"Updated existing Confluence page: {page_url}")
                     return page_url
                 logger.error(f"Confluence update failed: {update_resp.status_code} - {update_resp.text[:200]}")
                 return None
@@ -71,7 +70,6 @@ def post_to_confluence(title: str, content: str) -> str | None:
             try:
                 page_id = response.json()["id"]
                 page_url = f"{wiki_base}/spaces/{CONFLUENCE_SPACE_KEY}/pages/{page_id}"
-                logger.info(f"Successfully created Confluence page: {page_url}")
                 return page_url
             except (KeyError, ValueError) as e:
                 logger.error(f"Failed to parse Confluence response: {e}")

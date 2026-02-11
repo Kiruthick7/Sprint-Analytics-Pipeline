@@ -20,7 +20,7 @@ try:
             max_tokens=8192,
             google_api_key=_api_key,
         )
-        logger.info("Using LLM: Gemini (gemini-1.5-flash, 1M context)")
+        logger.debug("Using LLM: Gemini (gemini-1.5-flash, 1M context)")
     else:
         from langchain_groq import ChatGroq
         llm = ChatGroq(  # type: ignore[call-arg]
@@ -28,7 +28,7 @@ try:
             temperature=0.2,
             max_tokens=4096,
         )
-        logger.info("Using LLM: Groq (llama-4-scout-17b, 30K TPM)")
+        logger.debug("Using LLM: Groq (llama-4-scout-17b, 30K TPM)")
 except Exception as e:
     logger.error(f"Failed to initialize LLM: {e}")
     raise
