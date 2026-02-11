@@ -200,7 +200,7 @@ Edit `team_config.py`: set `board_id` for each team. Use `members: []` to auto-d
 ### Steps
 
 1. The workflow file is already in the repo: `.github/workflows/jira-report.yml`. It runs at **03:30 UTC on Mon & Thu** (= 9 AM IST).
-2. In your GitHub repo: **Settings → Secrets and variables → Actions**. Add these secrets (same as `.env`). For a full walkthrough that also hosts the Developer lookup at a public URL, see [GitHub Actions + Developer lookup on Render](GITHUB_ACTIONS_AND_DEVELOPER_LOOKUP.md).
+2. In your GitHub repo: **Settings → Secrets and variables → Actions**. Add these secrets (same as `.env`). For the **Developer lookup** and **Sprint metrics dashboard** links to appear in the Confluence report, also add **`APP_BASE_URL`** (your hosted app URL, no trailing slash) and optionally **`VELOCITY_DASHBOARD_URL`**. For a full walkthrough that also hosts the Developer lookup at a public URL, see [GitHub Actions + Developer lookup (Render/Railway)](GITHUB_ACTIONS_AND_DEVELOPER_LOOKUP.md).
    - `JIRA_USER_NAME`
    - `JIRA_TOKEN`
    - `TEAMS_WEBHOOK`

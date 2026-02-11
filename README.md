@@ -31,7 +31,7 @@ Generates Jira sprint reports for multiple teams, posts one consolidated page to
 
 **📋 [Step-by-step guide: all ways to run the report + Developer lookup](docs/RUNNING_THE_REPORT.md)** — Run the report (once, web app, GCP, cron, GitHub Actions, HTTP trigger) and how to use the HTML Developer lookup page (enter name, team, sprint → fetch from Jira).
 
-**🚀 [GitHub Actions + host Developer lookup on Render](docs/GITHUB_ACTIONS_AND_DEVELOPER_LOOKUP.md)** — Schedule the report with GitHub Actions (Mon & Thu 9 AM IST) and host the Developer lookup at a public URL (Render free tier).
+**🚀 [GitHub Actions + host Developer lookup (Render or Railway)](docs/GITHUB_ACTIONS_AND_DEVELOPER_LOOKUP.md)** — Schedule the report with GitHub Actions (Mon & Thu 9 AM IST) and host the Developer lookup at a public URL. Use Render (free or paid) or Railway (Hobby ~$5/mo for always-on). For Render deploy steps, see [RENDER_DEPLOY_CHECKLIST.md](docs/RENDER_DEPLOY_CHECKLIST.md).
 
 ### Step 1: Clone and install
 
@@ -106,7 +106,7 @@ For Developer lookup to appear on the Confluence page when deployed, set `APP_BA
 This will:
 
 - Deploy the app as a **Cloud Function** (HTTP).
-- Create a **Cloud Scheduler** job that calls the function **every Monday at 9:00 AM IST** at `/report` (generates the report and posts to Confluence + Teams).
+- Create a **Cloud Scheduler** job that calls the function at **Monday and Thursday 9:00 AM IST** at `/report` (generates the report and posts to Confluence + Teams).
 
 3. **After the first deploy:** copy the function URL from the script output and set in `.env`:
 
@@ -154,7 +154,7 @@ If the server is in UTC, 9 AM IST = 03:30 UTC:
 ```
 
 **GitHub Actions:**  
-A workflow is included at `.github/workflows/jira-report.yml` (Mon & Thu 03:30 UTC = 9 AM IST). To use it: add the same env vars as **Secrets** in the repo (e.g. `JIRA_USER_NAME`, `JIRA_TOKEN`, `TEAMS_WEBHOOK`, `CONFLUENCE_*`, `GROQ_API_KEY` or `GEMINI_API_KEY`). You can also trigger the workflow manually from the Actions tab.
+A workflow is included at `.github/workflows/jira-report.yml` (Mon & Thu 03:30 UTC = 9 AM IST). Add **repository secrets**: `JIRA_USER_NAME`, `JIRA_TOKEN`, `TEAMS_WEBHOOK`, `CONFLUENCE_*`, `LLM_PROVIDER`, `GROQ_API_KEY` or `GEMINI_API_KEY`. For the **Developer lookup** and **Sprint metrics dashboard** links to appear in the Confluence report, also add `APP_BASE_URL` (your hosted app URL, no trailing slash) and optionally `VELOCITY_DASHBOARD_URL`. See [GITHUB_ACTIONS_AND_DEVELOPER_LOOKUP.md](docs/GITHUB_ACTIONS_AND_DEVELOPER_LOOKUP.md). Trigger the workflow manually from the Actions tab.
 
 ---
 
@@ -197,7 +197,8 @@ A workflow is included at `.github/workflows/jira-report.yml` (Mon & Thu 03:30 U
 │   └── person.html           # Person Lookup UI (embedded on Confluence)
 ├── docs/
 │   ├── RUNNING_THE_REPORT.md                      # All ways to run report + Developer lookup
-│   └── GITHUB_ACTIONS_AND_DEVELOPER_LOOKUP.md     # GitHub Actions + host lookup on Render
+│   ├── GITHUB_ACTIONS_AND_DEVELOPER_LOOKUP.md     # GitHub Actions + host lookup (Render/Railway)
+│   └── RENDER_DEPLOY_CHECKLIST.md                 # Render deploy checklist (env vars, Docker, instance type)
 ├── requirements.txt
 ├── .env.example
 ├── deploy.sh                 # Deploy Cloud Function + Scheduler (sources .env)
@@ -212,7 +213,8 @@ A workflow is included at `.github/workflows/jira-report.yml` (Mon & Thu 03:30 U
 ## Configuration
 
 - **JQL filter:** `JIRA_CUSTOM_JQL_FILTER` in `team_config.py` is applied where relevant (e.g. report JQL, spillover fallback). Team report uses sprint + optional members; **Issues in Sprint** counts parent issues only (no subtasks).
-- **Sprint metrics dashboard:** Set `VELOCITY_DASHBOARD_URL` in `.env` to show a **Sprint metrics dashboard** link on the report.
+- **Sprint metrics dashboard:** Set `VELOCITY_DASHBOARD_URL` in `.env` (or in GitHub Secrets when using Actions) to show a **Sprint metrics dashboard** link on the report.
+- **Developer lookup / report links:** Set `APP_BASE_URL` (and optionally `VELOCITY_DASHBOARD_URL`) so the Confluence report shows the Developer lookup link and Sprint metrics dashboard link. When using GitHub Actions, add these as **repository secrets** so the scheduled report includes the links.
 - **Sprint naming:** Report warns if the name doesn’t match `PI<X> S<X> Squad_Name`; it does not change behavior.
 - **Rate limiting:** 15-second delay between teams when generating the report.
 - **Confluence page:** Fixed title **"HSTG Digital Sprint status report"**. Each run updates that page if it exists; otherwise a new page is created.
@@ -257,6 +259,17 @@ The log shows `Worker (pid:...) was sent SIGSEGV!` and the browser may show "Thi
 | Deploy to GCP | `./deploy.sh` |
 | Trigger scheduler manually | `gcloud scheduler jobs run CLOUD_FUNCTION_NAME-scheduler --location=GCP_REGION` |
 | View function logs | `gcloud functions logs read CLOUD_FUNCTION_NAME --region=GCP_REGION --limit=50` |
+| Run report via GitHub Actions | Add secrets (see docs), then Actions → Jira Sprint Report → Run workflow |
+
+---
+
+## Documentation
+
+| Doc | Description |
+|-----|-------------|
+| [RUNNING_THE_REPORT.md](docs/RUNNING_THE_REPORT.md) | All ways to run the report (local, web app, GCP, cron, GitHub Actions, HTTP) + how to use the Developer lookup page |
+| [GITHUB_ACTIONS_AND_DEVELOPER_LOOKUP.md](docs/GITHUB_ACTIONS_AND_DEVELOPER_LOOKUP.md) | GitHub Actions for scheduled report (Mon & Thu 9 AM IST) + host Developer lookup on Render or Railway |
+| [RENDER_DEPLOY_CHECKLIST.md](docs/RENDER_DEPLOY_CHECKLIST.md) | Step-by-step Render deploy (env vars, Docker, instance type, health check) |
 
 ---
 

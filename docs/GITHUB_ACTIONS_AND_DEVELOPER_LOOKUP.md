@@ -3,18 +3,18 @@
 This guide gets you to:
 
 1. **Run the sprint report on a schedule** (Monday & Thursday 9 AM IST) using **GitHub Actions**.
-2. **Host the Developer lookup page** so anyone can open a URL, enter developer name / team / sprint, and fetch details from Jira. The app is deployed from your GitHub repo to **Render** (free tier), so the lookup is “hosted” and always available at a public URL.
+2. **Host the Developer lookup page** so anyone can open a URL, enter developer name / team / sprint, and fetch details from Jira. The app is deployed from your GitHub repo to **Render** (free or paid) or **Railway** (Hobby for always-on), so the lookup is hosted at a public URL.
 
 **Why two parts?** GitHub Actions runs **jobs** (start → run → exit). It does not run a long-lived web server. So:
 
 - **Report:** A scheduled workflow runs `python main.py` (or calls your deployed app’s `/report`).  
-- **Developer lookup:** The same app is **deployed to Render** so the HTML page and APIs (`/api/developers`, `/api/sprints`, `/api/person`) are served at a URL.
+- **Developer lookup:** The same app is **deployed to Render or Railway** so the HTML page and APIs (`/api/developers`, `/api/sprints`, `/api/person`) are served at a URL.
 
 After setup you will have:
 
 - **Report:** Runs automatically Mon & Thu 9 AM IST (and manually from the Actions tab).
-- **Developer lookup:** Live at `https://your-app-name.onrender.com/` (or the URL Render gives you).
-- **Confluence:** Can show the “Developer lookup” link pointing to that URL (via `APP_BASE_URL`).
+- **Developer lookup:** Live at your Render URL (e.g. `https://your-app.onrender.com/`) or Railway URL (e.g. `https://your-service.up.railway.app/`).
+- **Confluence:** Can show the “Developer lookup” and “Sprint metrics dashboard” links. When the report runs via **GitHub Actions**, add **`APP_BASE_URL`** and optionally **`VELOCITY_DASHBOARD_URL`** as repository secrets so those links appear in the report.
 
 ---
 

@@ -1,13 +1,13 @@
 # Render deploy checklist – Jira Developer Lookup
 
-Use this while you’re on the **New Web Service** page (or the service’s **Settings** after creation).
+Use this while you’re on the **New Web Service** page (or the service’s **Settings** after creation). For other ways to run the report and host the app, see the main [README](../README.md) and [GITHUB_ACTIONS_AND_DEVELOPER_LOOKUP.md](GITHUB_ACTIONS_AND_DEVELOPER_LOOKUP.md).
 
 ---
 
-## 1. Source and name (you’ve done this)
+## 1. Source and name
 
-- **Source:** `Kiruthick7 / Jira_Status_Report_Tool`
-- **Name:** `Jira-Developer-Lookup`
+- **Source:** Your GitHub repo (e.g. `your-org/Jira` or `Jira_Status_Report_Tool`)
+- **Name:** e.g. `Jira-Developer-Lookup`
 - **Branch:** `main`
 - **Region:** Virginia (or your choice)
 
