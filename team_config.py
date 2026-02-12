@@ -39,17 +39,21 @@ TEAMS_CONFIG = {
 # Single channel where all EMs and Scrum Master are; one post with Confluence link
 REPORT_CHANNEL_WEBHOOK = os.getenv("TEAMS_WEBHOOK")
 
-# Custom JQL filter (optional) – used for team reports (excludes subtasks)
+# Only Story and Bug (exclude Task, Epic, Sub-task, etc.) for report and lookup
+JIRA_REPORT_ISSUE_TYPES_JQL = 'issuetype IN ("Story", "Bug")'
+
+# Custom JQL filter (optional) – used for team reports (Story + Bug only)
 JIRA_CUSTOM_JQL_FILTER = (
     "status NOT IN (RESOLVED, CANCELED) "
     "AND assignee IS NOT EMPTY "
-    "AND issuetype NOT IN subTaskIssueTypes() "
+    f"AND {JIRA_REPORT_ISSUE_TYPES_JQL} "
     "ORDER BY status ASC"
 )
 
-# Person Lookup: include subtasks so assignee sees all their tickets (stories + subtasks)
+# Person Lookup: Story + Bug only (same as report)
 JIRA_PERSON_LOOKUP_JQL_FILTER = (
     "status NOT IN CANCELED "
     "AND assignee IS NOT EMPTY "
+    f"AND {JIRA_REPORT_ISSUE_TYPES_JQL} "
     "ORDER BY status ASC"
 )

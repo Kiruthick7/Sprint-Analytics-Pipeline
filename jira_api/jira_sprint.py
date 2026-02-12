@@ -8,9 +8,10 @@ import requests
 from config import jira_client, JIRA_SERVER, JIRA_USER_NAME, JIRA_TOKEN, JIRA_STORY_POINTS_FIELD
 
 try:
-    from team_config import JIRA_PERSON_LOOKUP_JQL_FILTER
+    from team_config import JIRA_PERSON_LOOKUP_JQL_FILTER, JIRA_REPORT_ISSUE_TYPES_JQL
 except ImportError:
     JIRA_PERSON_LOOKUP_JQL_FILTER = ""
+    JIRA_REPORT_ISSUE_TYPES_JQL = 'issuetype IN ("Story", "Bug")'
 
 from jira_api.jira_issues import _get_story_points
 
@@ -651,7 +652,9 @@ def get_sprint_story_points_from_issues(
         jql = f'sprint = "{sprint_name}"'
     else:
         return out
-    if not use_report_jql and JIRA_PERSON_LOOKUP_JQL_FILTER:
+    if use_report_jql:
+        jql += f" AND {JIRA_REPORT_ISSUE_TYPES_JQL}"
+    elif JIRA_PERSON_LOOKUP_JQL_FILTER:
         jql += f" AND {JIRA_PERSON_LOOKUP_JQL_FILTER}"
     sp_field = get_board_story_points_field(board_id) or JIRA_STORY_POINTS_FIELD
     status_to_bucket = get_board_status_to_bucket(board_id) if not use_report_jql else {}
@@ -772,7 +775,7 @@ def get_velocity_history(board_id: int, num_sprints: int = 5) -> list[dict]:
 def get_spillover_via_jql(sprint_id: int) -> list[dict]:
     """Fallback: get spillover via JQL when Sprint Report API returns 404 (e.g. Jira Cloud)."""
     try:
-        jql = f'sprint = {sprint_id} AND resolution is empty AND issuetype NOT IN subTaskIssueTypes() ORDER BY status ASC'
+        jql = f'sprint = {sprint_id} AND resolution is empty AND {JIRA_REPORT_ISSUE_TYPES_JQL} ORDER BY status ASC'
         issues = jira_client.search_issues(jql, maxResults=200, fields=["key", "summary", "assignee", "labels"])
         out = []
         for i in issues:

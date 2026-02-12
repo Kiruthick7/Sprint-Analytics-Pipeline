@@ -3,7 +3,7 @@ import re
 import logging
 
 from config import jira_client, JIRA_SERVER, JIRA_STORY_POINTS_FIELD
-from team_config import JIRA_CUSTOM_JQL_FILTER
+from team_config import JIRA_CUSTOM_JQL_FILTER, JIRA_REPORT_ISSUE_TYPES_JQL
 from utils.markdown import escape_markdown_table_cell
 
 from jira_api.verification_helpers import check_verification_checklist
@@ -83,9 +83,9 @@ def get_sprint_issues_by_status_with_context(
     out = []
     try:
         if sprint_id:
-            jql = f"sprint = {sprint_id} AND status = \"{status}\" AND issuetype NOT IN subTaskIssueTypes()"
+            jql = f"sprint = {sprint_id} AND status = \"{status}\" AND {JIRA_REPORT_ISSUE_TYPES_JQL}"
         elif sprint_name:
-            jql = f'sprint = "{sprint_name}" AND status = "{status}" AND issuetype NOT IN subTaskIssueTypes()'
+            jql = f'sprint = "{sprint_name}" AND status = "{status}" AND {JIRA_REPORT_ISSUE_TYPES_JQL}'
         else:
             return out
         if JIRA_CUSTOM_JQL_FILTER:
@@ -162,7 +162,7 @@ def get_sprint_issue_count(
     if use_custom_filter and JIRA_CUSTOM_JQL_FILTER:
         jql += f" AND {JIRA_CUSTOM_JQL_FILTER}"
     else:
-        jql += " AND issuetype NOT IN subTaskIssueTypes()"
+        jql += f" AND {JIRA_REPORT_ISSUE_TYPES_JQL}"
     try:
         issues = jira_client.search_issues(jql, maxResults=1000, fields=["key"])
         return len(issues)
@@ -174,9 +174,9 @@ def get_sprint_issue_count(
 def get_sprint_backlog_status_count(sprint_id: int | None, sprint_name: str | None) -> int:
     """Count issues in the sprint with status BACKLOG (not yet started). Matches Jira view 'sprint = X AND status = BACKLOG'."""
     if sprint_id:
-        jql = f"sprint = {sprint_id} AND status = \"BACKLOG\" AND issuetype NOT IN subTaskIssueTypes()"
+        jql = f"sprint = {sprint_id} AND status = \"BACKLOG\" AND {JIRA_REPORT_ISSUE_TYPES_JQL}"
     elif sprint_name:
-        jql = f'sprint = "{sprint_name}" AND status = "BACKLOG" AND issuetype NOT IN subTaskIssueTypes()'
+        jql = f'sprint = "{sprint_name}" AND status = "BACKLOG" AND {JIRA_REPORT_ISSUE_TYPES_JQL}'
     else:
         return 0
     try:
@@ -194,9 +194,9 @@ def get_sprint_issues_no_story_points_count(
 ) -> int:
     """Count issues in the sprint (parent only) that have no story points (0 or empty)."""
     if sprint_id:
-        jql = f"sprint = {sprint_id} AND issuetype NOT IN subTaskIssueTypes()"
+        jql = f"sprint = {sprint_id} AND {JIRA_REPORT_ISSUE_TYPES_JQL}"
     elif sprint_name:
-        jql = f'sprint = "{sprint_name}" AND issuetype NOT IN subTaskIssueTypes()'
+        jql = f'sprint = "{sprint_name}" AND {JIRA_REPORT_ISSUE_TYPES_JQL}'
     else:
         return 0
     field = story_points_field or JIRA_STORY_POINTS_FIELD
