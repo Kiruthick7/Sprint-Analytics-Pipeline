@@ -36,7 +36,7 @@ except Exception as e:
 # One-line comment summary per issue (key -> summary). Output is parsed in report_builder and merged into each issue line as "key <-> status <-> description: summary".
 # Audience: scrum masters, EMs, directors, stakeholders—plain language, minimal jargon.
 comment_summary_template = PromptTemplate(
-    input_variables=["team_name", "sprint_name", "backlog_issues_context", "on_hold_issues_context"],
+    input_variables=["team_name", "sprint_name", "backlog_issues_context", "on_hold_issues_context", "blocked_issues_context"],
     template="""You are writing one short summary per Jira issue for a sprint report. The audience includes Scrum Masters, Engineering Managers, Directors, and stakeholders; use plain, professional language and avoid jargon.
 
 **Team:** {team_name}
@@ -45,15 +45,22 @@ comment_summary_template = PromptTemplate(
 **Output format (strict):** Output exactly one line per issue. Each line must be in this form only:
 KEY: one-line summary
 
-Use the exact Jira key (e.g. DGROCERY-7216). For Backlog issues, summarize what the comments add or say "No updates in comments." For On Hold issues, summarize why it is on hold or what is blocking it. One line per issue, no bullets or extra headings.
+Use the exact Jira key (e.g. DGROCERY-7216). Do not repeat or copy the ticket title/summary—write only a short summary of the comments or the reason (e.g. why on hold). Never output the issue title as the summary.
+- **Backlog:** Summarize what the comments add. If there are no comments or nothing useful, output nothing for that key (omit the line entirely so the report shows blank; we will show "Blocked by KEY" separately when applicable).
+- **On Hold:** Summarize why it is on hold or what is blocking it.
+- **Blocked:** Summarize why it is blocked or what the comments say.
+One line per issue, no bullets or extra headings.
 
-**Order:** First output one line for each Backlog issue in the order listed below. Then output one line for each On Hold issue in the order listed. If a list is empty, output nothing for that list.
+**Order:** First Backlog issues in the order listed, then On Hold issues, then Blocked issues. If a list is empty, output nothing for that list.
 
 **Issues on Backlog (with comment excerpts):**
 {backlog_issues_context}
 
 **Issues on Hold (with comment excerpts):**
 {on_hold_issues_context}
+
+**Issues on Blocked (with comment excerpts):**
+{blocked_issues_context}
 """,
 )
 sprint_chain_comments = RunnableSequence(comment_summary_template | llm)

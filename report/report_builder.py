@@ -82,6 +82,7 @@ def generate_team_report(team_name: str, team_config: dict) -> tuple[str | None,
 
         backlog_count = get_sprint_backlog_status_count(sprint_id, sprint_name)
         backlog_list = get_sprint_issues_by_status_with_context(sprint_id, sprint_name, "BACKLOG")
+        blocked_list = get_sprint_issues_by_status_with_context(sprint_id, sprint_name, "BLOCKED")
         on_hold_list = get_sprint_issues_by_status_with_context(sprint_id, sprint_name, "ON HOLD")
 
         def _issues_context_with_comments(items: list, empty_msg: str) -> str:
@@ -108,30 +109,61 @@ def generate_team_report(team_name: str, team_config: dict) -> tuple[str | None,
         # LLM: one-line comment summary per issue (parsed and merged into each line)
         backlog_issues_context = _issues_context_with_comments(backlog_list, "(No issues on Backlog in this sprint.)")
         on_hold_issues_context = _issues_context_with_comments(on_hold_list, "(No issues on Hold in this sprint.)")
+        blocked_issues_context = _issues_context_with_comments(blocked_list, "(No issues on Blocked in this sprint.)")
         comment_result = sprint_chain_comments.invoke({
             "team_name": team_name,
             "sprint_name": sprint_name,
             "backlog_issues_context": backlog_issues_context,
             "on_hold_issues_context": on_hold_issues_context,
+            "blocked_issues_context": blocked_issues_context,
         })
         comment_text = comment_result.content if hasattr(comment_result, "content") else str(comment_result)
         comment_by_key = _parse_comment_summaries(comment_text)
 
-        # Format: numbered list (1. 2. 3.) so each issue is one line; sno. ticket number - status - ticket name - summary
-        def _format_issue_line(item: dict, sno: int) -> str:
+        # Backlog: if no comments, show blank or "Blocked by KEY" when issue has block link. Same for On Hold/Blocked. No status name in line.
+        _empty_comment_phrases = ("no comments", "no comments.", "no updates in comments.", "comments not available.", "none.")
+        def _summary_for_issue(item: dict, section: str) -> str:
             key_upper = (item["key"] or "").upper()
-            summary_of_comments = comment_by_key.get(key_upper, "No comments.")
+            s = (comment_by_key.get(key_upper) or "").strip()
             ticket_name = (item.get("summary") or "").strip()
-            return f"{sno}. {item['key']} - {item['status_name']} - {ticket_name} - {summary_of_comments}"
+            # If LLM echoed the ticket name, treat as no summary
+            if s and s.lower() == ticket_name.lower():
+                s = ""
+            # Treat "No comments." and similar as empty so we don't display them
+            if s and s.lower() in _empty_comment_phrases:
+                s = ""
+            if s:
+                return s
+            # No comment summary: if issue is blocked by others, show that; else blank
+            blocked_by = item.get("blocked_by_keys") or []
+            if blocked_by:
+                return "Blocked by " + ", ".join(blocked_by)
+            return ""
 
-        # Format: Issues on Backlog: then 1. key - status - ticket name - summary (one line per issue); same for Issues on Hold
+        def _format_issue_line(item: dict, sno: int, section: str) -> str:
+            summary_of_comments = _summary_for_issue(item, section)
+            ticket_name = (item.get("summary") or "").strip()
+            key = item["key"]
+            jira_link = f"[{key}]({JIRA_SERVER}/browse/{key})"
+            if summary_of_comments:
+                return f"{sno}. {jira_link} - {ticket_name} - {summary_of_comments}"
+            return f"{sno}. {jira_link} - {ticket_name}"
+
+        # Format: Issues on Backlog / On Hold / Blocked; one line per issue (no blank between items so numbering stays 1,2,3)
         blockers_lines = ["### **Blockers, Delays or Issues Needing Attention**\n"]
         blockers_lines.append("**Issues on Backlog:**")
         blockers_lines.append("")
         if backlog_list:
             for i, b in enumerate(backlog_list, start=1):
-                blockers_lines.append(_format_issue_line(b, i))
-                blockers_lines.append("")
+                blockers_lines.append(_format_issue_line(b, i, "backlog"))
+        else:
+            blockers_lines.append("None.")
+        blockers_lines.append("")
+        blockers_lines.append("**Issues on Blocked:**")
+        blockers_lines.append("")
+        if blocked_list:
+            for i, b in enumerate(blocked_list, start=1):
+                blockers_lines.append(_format_issue_line(b, i, "blocked"))
         else:
             blockers_lines.append("None.")
         blockers_lines.append("")
@@ -139,8 +171,7 @@ def generate_team_report(team_name: str, team_config: dict) -> tuple[str | None,
         blockers_lines.append("")
         if on_hold_list:
             for i, b in enumerate(on_hold_list, start=1):
-                blockers_lines.append(_format_issue_line(b, i))
-                blockers_lines.append("")
+                blockers_lines.append(_format_issue_line(b, i, "on_hold"))
         else:
             blockers_lines.append("None.")
 

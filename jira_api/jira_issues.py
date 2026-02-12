@@ -90,7 +90,7 @@ def get_sprint_issues_by_status_with_context(
             return out
         if JIRA_CUSTOM_JQL_FILTER:
             jql += f" AND {JIRA_CUSTOM_JQL_FILTER}"
-        issues = jira_client.search_issues(jql, maxResults=200, fields=["summary", "status"])
+        issues = jira_client.search_issues(jql, maxResults=200, fields=["summary", "status", "issuelinks"])
         for issue in issues:
             status_obj = issue.fields.status
             status_name = status_obj.name if status_obj else "—"
@@ -101,11 +101,22 @@ def get_sprint_issues_by_status_with_context(
             except Exception as e:
                 logger.debug("Comments for %s: %s", issue.key, e)
                 comments_snippet = "Comments not available."
+            # "Blocked by" = inward issue links (this issue is blocked by the inward issue)
+            blocked_by_keys = []
+            try:
+                for link in getattr(issue.fields, "issuelinks", None) or []:
+                    if getattr(link, "inwardIssue", None):
+                        inward_key = getattr(link.inwardIssue, "key", None)
+                        if inward_key:
+                            blocked_by_keys.append(inward_key)
+            except Exception as e:
+                logger.debug("issuelinks for %s: %s", issue.key, e)
             out.append({
                 "key": issue.key,
                 "summary": (issue.fields.summary or "")[:100],
                 "status_name": status_name,
                 "comments_snippet": comments_snippet,
+                "blocked_by_keys": blocked_by_keys,
             })
     except Exception as e:
         logger.warning("get_sprint_issues_by_status_with_context: %s", e)
