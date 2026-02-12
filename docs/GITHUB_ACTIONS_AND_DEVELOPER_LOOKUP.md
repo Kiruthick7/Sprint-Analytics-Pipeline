@@ -154,6 +154,22 @@ jobs:
 
 After this, the report will also run automatically every Mon & Thu at 9 AM IST.
 
+### If the scheduled run didn’t happen (e.g. no run at 9 AM)
+
+1. **Check that the workflow is enabled**  
+   Actions → **Jira Sprint Report** → look for a yellow banner like “This workflow was disabled”. If you see it, click **Enable workflow**. GitHub can auto-disable scheduled workflows after long inactivity.
+
+2. **Confirm the workflow file is on the default branch**  
+   The schedule runs from the workflow on the repo’s default branch (usually `main`). If the workflow was only added on a feature branch, merge it to the default branch.
+
+3. **Allow for delay**  
+   Scheduled runs use UTC and can be delayed (often up to ~15 minutes). If it’s only a few minutes past 9 AM IST, wait a bit and refresh the Actions list. Filter by “Scheduled” to see schedule-triggered runs.
+
+4. **Forked repos**  
+   In a fork, scheduled workflows are disabled by default. Enable the workflow in the Actions tab if this repo is a fork.
+
+If it still doesn’t run, use **Run workflow** to trigger it manually; the schedule will continue on the next Mon/Thu.
+
 ---
 
 ## Part 3: Host the Developer lookup (deploy app to Render)

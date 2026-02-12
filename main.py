@@ -188,17 +188,68 @@ def generate_and_send_report(request):
         logger.error(error_msg, exc_info=True)
         return (error_msg, 500)
 
+# Github Cron Job
+def run_daily_report():
+    """Runs the daily report directly (used by GitHub Actions)."""
+
+    results = {"timestamp": datetime.now().isoformat(), "teams": {}}
+    all_team_reports = []
+
+    for idx, (team_name, team_config) in enumerate(TEAMS_CONFIG.items()):
+        report, error, naming_warning, verification_violations = generate_team_report(team_name, team_config)
+
+        if idx < len(TEAMS_CONFIG) - 1:
+            time.sleep(15)
+
+        if error:
+            print(f"❌ {team_name}: {error}")
+            continue
+
+        all_team_reports.append({
+            "team_name": team_name,
+            "report": report,
+            "naming_warning": naming_warning,
+            "verification_violations": verification_violations,
+        })
+
+    if not all_team_reports:
+        print("No reports generated.")
+        return
+
+    consolidated = build_consolidated_report(all_team_reports)
+    confluence_url = post_to_confluence(get_confluence_title(), consolidated)
+    teams_message = build_teams_message(all_team_reports, confluence_url, results)
+
+    if not confluence_url:
+        print("Confluence failed")
+        sys.exit(1)
+
+    if REPORT_CHANNEL_WEBHOOK:
+        sent = post_to_teams(REPORT_CHANNEL_WEBHOOK, teams_message, "Report channel")
+        print("Report sent to Teams:", sent)
+    else:
+        print("No TEAMS_WEBHOOK configured.")
+
+
+    print("Report generation completed.")
+
 
 if __name__ == "__main__":
-    class MockRequest:
+    import sys
+
+    if "--run-report" in sys.argv:
+        print("Running report...")
+        run_daily_report()
+    else:
+        # Local dev fallback (runs report)
         """Minimal request for local test; path='/report' runs the daily report."""
+        class MockRequest:
+            def __init__(self) -> None:
+                self.args = {}
+                self.headers = {}
+                self.method = "GET"
+                self.environ = {}
+                self.path = "/report"
 
-        def __init__(self) -> None:
-            self.args: dict[str, Any] = {}
-            self.headers: dict[str, str] = {}
-            self.method: str = "GET"
-            self.environ: dict[str, Any] = {}
-            self.path: str = "/report"  # so local test runs report, not person UI
-
-    result, status = generate_and_send_report(MockRequest())  # type: ignore
-    print(f"\nResult ({status}):\n{result}")
+        result, status = generate_and_send_report(MockRequest())  # type: ignore
+        print(f"\nResult ({status}):\n{result}")
