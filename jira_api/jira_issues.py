@@ -113,7 +113,7 @@ def get_sprint_issues_by_status_with_context(
                 logger.debug("issuelinks for %s: %s", issue.key, e)
             out.append({
                 "key": issue.key,
-                "summary": (issue.fields.summary or "")[:100],
+                "summary": (issue.fields.summary or "").strip(),
                 "status_name": status_name,
                 "comments_snippet": comments_snippet,
                 "blocked_by_keys": blocked_by_keys,
