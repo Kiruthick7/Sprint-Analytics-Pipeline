@@ -117,18 +117,19 @@ def generate_team_report(team_name: str, team_config: dict) -> tuple[str | None,
         comment_text = comment_result.content if hasattr(comment_result, "content") else str(comment_result)
         comment_by_key = _parse_comment_summaries(comment_text)
 
-        # Format: sno - ticket number - ticket status - ticket name - summary (one line per issue)
+        # Format: numbered list (1. 2. 3.) so each issue is one line; sno. ticket number - status - ticket name - summary
         def _format_issue_line(item: dict, sno: int) -> str:
             key_upper = (item["key"] or "").upper()
             summary_of_comments = comment_by_key.get(key_upper, "No comments.")
             ticket_name = (item.get("summary") or "").strip()
-            return f"{sno} - {item['key']} - {item['status_name']} - {ticket_name} - {summary_of_comments}"
+            return f"{sno}. {item['key']} - {item['status_name']} - {ticket_name} - {summary_of_comments}"
 
         blockers_lines = ["### **Blockers, Delays or Issues Needing Attention**\n"]
         blockers_lines.append("**Issues on Backlog:**")
         if backlog_list:
             for i, b in enumerate(backlog_list, start=1):
                 blockers_lines.append(_format_issue_line(b, i))
+                blockers_lines.append("")  # blank line so each item is on its own line
         else:
             blockers_lines.append("None.")
         blockers_lines.append("")
@@ -136,6 +137,7 @@ def generate_team_report(team_name: str, team_config: dict) -> tuple[str | None,
         if on_hold_list:
             for i, b in enumerate(on_hold_list, start=1):
                 blockers_lines.append(_format_issue_line(b, i))
+                blockers_lines.append("")  # blank line so each item is on its own line
         else:
             blockers_lines.append("None.")
 
