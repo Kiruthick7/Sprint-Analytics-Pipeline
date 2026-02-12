@@ -35,9 +35,9 @@ Edit `.env` and set at least:
 | `CONFLUENCE_TOKEN` | For report | Confluence API token |
 | `CONFLUENCE_SPACE_KEY` | For report | Space key (e.g. `HGD`) |
 | `TEAMS_WEBHOOK` | For report | Teams incoming webhook URL |
-| `LLM_PROVIDER` | For report | `groq` or `gemini` |
-| `GROQ_API_KEY` | If groq | Groq API key |
-| `GEMINI_API_KEY` or `GOOGLE_API_KEY` | If gemini | Gemini/Google AI key |
+| `LLM_PROVIDER` | For report | `groq` or `gemini` (required for Blockers comment summaries) |
+| `GROQ_API_KEY` | If groq | Groq API key (required when `LLM_PROVIDER=groq`) |
+| `GEMINI_API_KEY` or `GOOGLE_API_KEY` | If gemini | Gemini/Google AI key (required when `LLM_PROVIDER=gemini`) |
 
 Optional: `JIRA_SERVER`, `VELOCITY_DASHBOARD_URL`, `APP_BASE_URL` (for Developer lookup link on Confluence).
 
@@ -208,7 +208,7 @@ Edit `team_config.py`: set `board_id` for each team. Use `members: []` to auto-d
    - `CONFLUENCE_USER`
    - `CONFLUENCE_TOKEN`
    - `CONFLUENCE_SPACE_KEY`
-   - `LLM_PROVIDER` (optional; default is groq)
+   - `LLM_PROVIDER` (required; e.g. groq or gemini)
    - `GROQ_API_KEY` and/or `GEMINI_API_KEY`
    - Optional: `JIRA_SERVER` (defaults to `https://hy-vee.atlassian.net` in the workflow)
 3. Push to the default branch (or the branch the workflow is on). The scheduled runs will happen automatically.

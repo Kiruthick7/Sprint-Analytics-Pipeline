@@ -27,6 +27,7 @@ from jira_api.jira_issues import (
     get_sprint_backlog_status_count,
     get_sprint_issues_no_story_points_count,
 )
+from report.llm_report import sprint_chain_comments
 from report.violations_chart import aggregate_violation_counts, violations_summary_table
 from utils.markdown import escape_markdown_table_cell
 
@@ -86,7 +87,15 @@ def generate_team_report(team_name: str, team_config: dict) -> tuple[str | None,
         def _format_backlog_on_hold_line(item: dict) -> str:
             return f"- {item['key']} - {item['status_name']} - {item['summary']}"
 
-        # Build "Blockers, Delays or Issues Needing Attention" with exact format (not via LLM so the list shows as-is)
+        def _issues_context_with_comments(items: list, empty_msg: str) -> str:
+            if not items:
+                return empty_msg
+            return "\n".join(
+                f"- {b['key']} - {b['status_name']} - {b['summary']} | Comments/excerpts: {b['comments_snippet']}"
+                for b in items
+            )
+
+        # Build "Blockers, Delays or Issues Needing Attention": list (Ticket - Status - Description) then LLM comment summaries
         # Order: backlog first, then on hold
         blockers_lines = ["### **Blockers, Delays or Issues Needing Attention**\n"]
         blockers_lines.append("**Issues on Backlog:**")
@@ -100,6 +109,21 @@ def generate_team_report(team_name: str, team_config: dict) -> tuple[str | None,
             blockers_lines.extend(_format_backlog_on_hold_line(b) for b in on_hold_list)
         else:
             blockers_lines.append("None.")
+
+        # LLM required for comment summaries (backlog + on-hold)
+        backlog_issues_context = _issues_context_with_comments(backlog_list, "(No issues on Backlog in this sprint.)")
+        on_hold_issues_context = _issues_context_with_comments(on_hold_list, "(No issues on Hold in this sprint.)")
+        comment_result = sprint_chain_comments.invoke({
+            "team_name": team_name,
+            "sprint_name": sprint_name,
+            "backlog_issues_context": backlog_issues_context,
+            "on_hold_issues_context": on_hold_issues_context,
+        })
+        comment_summaries = comment_result.content if hasattr(comment_result, "content") else str(comment_result)
+        blockers_lines.append("")
+        blockers_lines.append("**Comment summaries:**")
+        blockers_lines.append(comment_summaries.strip())
+
         report = "\n".join(blockers_lines)
         report = re.sub(r"\n{3,}", "\n\n", report)
 

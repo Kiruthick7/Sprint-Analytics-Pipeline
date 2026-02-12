@@ -89,9 +89,9 @@ These secrets are used by the GitHub Actions workflow when it runs the report.
 | `CONFLUENCE_USER` | Yes | Confluence user email |
 | `CONFLUENCE_TOKEN` | Yes | Confluence API token |
 | `CONFLUENCE_SPACE_KEY` | Yes | Confluence space key (e.g. `HGD`) |
-| `LLM_PROVIDER` | No | `groq` or `gemini` (default: groq) |
-| `GROQ_API_KEY` | If groq | Groq API key |
-| `GEMINI_API_KEY` | If gemini | Gemini/Google AI key |
+| `LLM_PROVIDER` | Yes | `groq` or `gemini` (required for Blockers comment summaries) |
+| `GROQ_API_KEY` | If groq | Groq API key (required when using groq) |
+| `GEMINI_API_KEY` | If gemini | Gemini/Google AI key (required when using gemini) |
 | `JIRA_SERVER` | No | Jira base URL (default: `https://hy-vee.atlassian.net`) |
 | **`APP_BASE_URL`** | For report links | URL of your Developer lookup app (Render/Railway) **with no trailing slash**. Needed so the Confluence report shows the “Developer lookup” link. |
 | **`VELOCITY_DASHBOARD_URL`** | Optional | URL for the “Sprint metrics dashboard” link on the report. |
@@ -216,9 +216,9 @@ In the same Web Service, go to **Environment** and add the same variables you us
 | `CONFLUENCE_TOKEN` | (Confluence API token) | Required, Secret |
 | `CONFLUENCE_SPACE_KEY` | (e.g. HGD) | Required |
 | `TEAMS_WEBHOOK` | (Teams webhook URL) | Required, Secret |
-| `LLM_PROVIDER` | `groq` or `gemini` | Optional |
-| `GROQ_API_KEY` | (key) | If using groq, Secret |
-| `GEMINI_API_KEY` | (key) | If using gemini, Secret |
+| `LLM_PROVIDER` | `groq` or `gemini` | Required |
+| `GROQ_API_KEY` | (key) | Required when using groq, Secret |
+| `GEMINI_API_KEY` | (key) | Required when using gemini, Secret |
 | `APP_BASE_URL` | **Leave empty for now** | You’ll set it after first deploy |
 
 You can copy these from your local `.env` (never commit `.env`). Mark sensitive values as **Secret** in Render.

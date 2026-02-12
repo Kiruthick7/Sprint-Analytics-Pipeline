@@ -45,9 +45,9 @@ Click **“Add Environment Variable”** (or “Add from .env”) and add these.
 | `CONFLUENCE_TOKEN` | Confluence API token | **Yes** |
 | `CONFLUENCE_SPACE_KEY` | e.g. `HGD` | No |
 | `TEAMS_WEBHOOK` | Teams incoming webhook URL | **Yes** |
-| `LLM_PROVIDER` | `groq` or `gemini` | No |
-| `GROQ_API_KEY` | Groq API key (if using groq) | **Yes** |
-| `GEMINI_API_KEY` | Gemini API key (if using gemini) | **Yes** |
+| `LLM_PROVIDER` | `groq` or `gemini` | **Yes** (required for Blockers comment summaries) |
+| `GROQ_API_KEY` | Groq API key (if using groq) | **Yes** when `LLM_PROVIDER=groq` |
+| `GEMINI_API_KEY` | Gemini API key (if using gemini) | **Yes** when `LLM_PROVIDER=gemini` |
 
 **Do not set `APP_BASE_URL` yet.** Set it after the first deploy to your service URL (no trailing slash).
 

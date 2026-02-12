@@ -33,32 +33,27 @@ except Exception as e:
     logger.error(f"Failed to initialize LLM: {e}")
     raise
 
-daily_scrum_template = PromptTemplate(
-    input_variables=["team_name", "sprint_name", "sprint_features", "backlog_issues_context", "on_hold_issues_context"],
-    template="""You are writing a brief, actionable summary for the Scrum Master, directors, and stakeholders. The report audience needs a clear read on what needs attention—not progress metrics (those come from Jira).
+# Comment summaries (for backlog + on-hold). List format is built in report_builder; this output is shown as "Comment summaries" below it.
+# Styled for scrum masters, engineering managers, directors, and stakeholders—use plain language; many readers are not deeply technical.
+comment_summary_template = PromptTemplate(
+    input_variables=["team_name", "sprint_name", "backlog_issues_context", "on_hold_issues_context"],
+    template="""You are writing a brief, actionable summary for a sprint report. The audience includes Scrum Masters, Engineering Managers, Directors, and other stakeholders. Many readers do not have deep technical knowledge—use plain, professional language and avoid jargon, acronyms, or technical detail unless necessary. Focus on what needs attention and why it matters.
 
 **Team:** {team_name}
 **Sprint:** {sprint_name}
 
-**Your task:** Write one section only: **Blockers, Delays or Issues Needing Attention**.
+**Your task:** Write only the **Comment summaries** section. Use the issue summary and comment excerpts below to write one short, clear line per issue. Explain in business-friendly terms: what is the situation, why is it on hold (for On Hold issues), or what context do the comments add (for Backlog). If there are no useful comments, say so simply (e.g. "No updates in comments.").
 
-Include only these two subsections (use short bullet points; do not add extra blank lines between subsections):
-- **Issues on Backlog:** For each Backlog issue listed below, write one bullet with the Jira key and a one-line summary (use the issue summary and comment excerpts provided). If the list is empty, write "None."
-- **Issues on Hold:** For each On Hold issue listed below, write one bullet with the Jira key and a one-line summary of why it is on hold (use the issue summary and comment excerpts provided). If the list is empty, write "None."
+- **Comment summaries (Backlog):** One line per Backlog issue: [Issue key]: [plain-language summary or "No updates in comments."]. Keep the same order as the list.
+- **Comment summaries (On Hold):** One line per On Hold issue: [Issue key]: [why it is on hold or what’s blocking it, in plain language]. Keep the same order as the list.
 
-Do not include "Delays" or "Risks & dependencies" sections at all.
+If a list is empty, write "None." No code, no SQL, no tables. One line break between list items.
 
-**Issues on Backlog (use this to write the Issues on Backlog bullets):**
+**Issues on Backlog (with comment excerpts):**
 {backlog_issues_context}
 
-**Issues on Hold (use this to write the Issues on Hold bullets):**
+**Issues on Hold (with comment excerpts):**
 {on_hold_issues_context}
-
-**Style:** Plain, professional language. One line break between list items; no extra gaps. No code, no SQL, no tables.
-
-**Issue data (for context only):**
-{sprint_features}
 """,
 )
-
-sprint_chain = RunnableSequence(daily_scrum_template | llm)
+sprint_chain_comments = RunnableSequence(comment_summary_template | llm)
