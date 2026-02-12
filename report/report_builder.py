@@ -88,10 +88,11 @@ def generate_team_report(team_name: str, team_config: dict) -> tuple[str | None,
             if not items:
                 return empty_msg
             return "\n".join(
-                f"- {b['key']}: {b['summary']} | Status: {b['status_name']} | Comments/excerpts: {b['comments_snippet']}"
+                f"- {b['key']} - {b['status_name']} - {b['summary']}"
                 for b in items
             )
 
+        # Order: backlog first, then on hold (passed to LLM in that order)
         backlog_issues_context = _issues_context(backlog_list, "(No issues on Backlog in this sprint.)")
         on_hold_issues_context = _issues_context(on_hold_list, "(No issues on Hold in this sprint.)")
 
