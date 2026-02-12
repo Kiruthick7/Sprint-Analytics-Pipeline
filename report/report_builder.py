@@ -84,9 +84,6 @@ def generate_team_report(team_name: str, team_config: dict) -> tuple[str | None,
         backlog_list = get_sprint_issues_by_status_with_context(sprint_id, sprint_name, "BACKLOG")
         on_hold_list = get_sprint_issues_by_status_with_context(sprint_id, sprint_name, "ON HOLD")
 
-        def _format_backlog_on_hold_line(item: dict) -> str:
-            return f"- {item['key']} - {item['status_name']} - {item['summary']}"
-
         def _issues_context_with_comments(items: list, empty_msg: str) -> str:
             if not items:
                 return empty_msg
@@ -95,22 +92,20 @@ def generate_team_report(team_name: str, team_config: dict) -> tuple[str | None,
                 for b in items
             )
 
-        # Build "Blockers, Delays or Issues Needing Attention": list (Ticket - Status - Description) then LLM comment summaries
-        # Order: backlog first, then on hold
-        blockers_lines = ["### **Blockers, Delays or Issues Needing Attention**\n"]
-        blockers_lines.append("**Issues on Backlog:**")
-        if backlog_list:
-            blockers_lines.extend(_format_backlog_on_hold_line(b) for b in backlog_list)
-        else:
-            blockers_lines.append("None.")
-        blockers_lines.append("")
-        blockers_lines.append("**Issues on Hold:**")
-        if on_hold_list:
-            blockers_lines.extend(_format_backlog_on_hold_line(b) for b in on_hold_list)
-        else:
-            blockers_lines.append("None.")
+        def _parse_comment_summaries(text: str) -> dict[str, str]:
+            """Parse LLM output into key -> one-line summary. Expects lines like 'KEY: summary'."""
+            out = {}
+            for line in (text or "").strip().splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                # Match "KEY: rest" (KEY = project id + hyphen + number, e.g. DGROCERY-7216)
+                m = re.match(r"^([A-Z][A-Z0-9]+-\d+):\s*(.*)$", line, re.IGNORECASE)
+                if m:
+                    out[m.group(1).upper()] = m.group(2).strip()
+            return out
 
-        # LLM required for comment summaries (backlog + on-hold)
+        # LLM: one-line comment summary per issue (parsed and merged into each line)
         backlog_issues_context = _issues_context_with_comments(backlog_list, "(No issues on Backlog in this sprint.)")
         on_hold_issues_context = _issues_context_with_comments(on_hold_list, "(No issues on Hold in this sprint.)")
         comment_result = sprint_chain_comments.invoke({
@@ -119,10 +114,30 @@ def generate_team_report(team_name: str, team_config: dict) -> tuple[str | None,
             "backlog_issues_context": backlog_issues_context,
             "on_hold_issues_context": on_hold_issues_context,
         })
-        comment_summaries = comment_result.content if hasattr(comment_result, "content") else str(comment_result)
+        comment_text = comment_result.content if hasattr(comment_result, "content") else str(comment_result)
+        comment_by_key = _parse_comment_summaries(comment_text)
+
+        # Format: sno - ticket number - ticket status - ticket name - summary (one line per issue)
+        def _format_issue_line(item: dict, sno: int) -> str:
+            key_upper = (item["key"] or "").upper()
+            summary_of_comments = comment_by_key.get(key_upper, "No comments.")
+            ticket_name = (item.get("summary") or "").strip()
+            return f"{sno} - {item['key']} - {item['status_name']} - {ticket_name} - {summary_of_comments}"
+
+        blockers_lines = ["### **Blockers, Delays or Issues Needing Attention**\n"]
+        blockers_lines.append("**Issues on Backlog:**")
+        if backlog_list:
+            for i, b in enumerate(backlog_list, start=1):
+                blockers_lines.append(_format_issue_line(b, i))
+        else:
+            blockers_lines.append("None.")
         blockers_lines.append("")
-        blockers_lines.append("**Comment summaries:**")
-        blockers_lines.append(comment_summaries.strip())
+        blockers_lines.append("**Issues on Hold:**")
+        if on_hold_list:
+            for i, b in enumerate(on_hold_list, start=1):
+                blockers_lines.append(_format_issue_line(b, i))
+        else:
+            blockers_lines.append("None.")
 
         report = "\n".join(blockers_lines)
         report = re.sub(r"\n{3,}", "\n\n", report)

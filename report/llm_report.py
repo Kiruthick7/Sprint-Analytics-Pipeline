@@ -33,21 +33,21 @@ except Exception as e:
     logger.error(f"Failed to initialize LLM: {e}")
     raise
 
-# Comment summaries (for backlog + on-hold). List format is built in report_builder; this output is shown as "Comment summaries" below it.
-# Styled for scrum masters, engineering managers, directors, and stakeholders—use plain language; many readers are not deeply technical.
+# One-line comment summary per issue (key -> summary). Output is parsed in report_builder and merged into each issue line as "key <-> status <-> description: summary".
+# Audience: scrum masters, EMs, directors, stakeholders—plain language, minimal jargon.
 comment_summary_template = PromptTemplate(
     input_variables=["team_name", "sprint_name", "backlog_issues_context", "on_hold_issues_context"],
-    template="""You are writing a brief, actionable summary for a sprint report. The audience includes Scrum Masters, Engineering Managers, Directors, and other stakeholders. Many readers do not have deep technical knowledge—use plain, professional language and avoid jargon, acronyms, or technical detail unless necessary. Focus on what needs attention and why it matters.
+    template="""You are writing one short summary per Jira issue for a sprint report. The audience includes Scrum Masters, Engineering Managers, Directors, and stakeholders; use plain, professional language and avoid jargon.
 
 **Team:** {team_name}
 **Sprint:** {sprint_name}
 
-**Your task:** Write only the **Comment summaries** section. Use the issue summary and comment excerpts below to write one short, clear line per issue. Explain in business-friendly terms: what is the situation, why is it on hold (for On Hold issues), or what context do the comments add (for Backlog). If there are no useful comments, say so simply (e.g. "No updates in comments.").
+**Output format (strict):** Output exactly one line per issue. Each line must be in this form only:
+KEY: one-line summary
 
-- **Comment summaries (Backlog):** One line per Backlog issue: [Issue key]: [plain-language summary or "No updates in comments."]. Keep the same order as the list.
-- **Comment summaries (On Hold):** One line per On Hold issue: [Issue key]: [why it is on hold or what’s blocking it, in plain language]. Keep the same order as the list.
+Use the exact Jira key (e.g. DGROCERY-7216). For Backlog issues, summarize what the comments add or say "No updates in comments." For On Hold issues, summarize why it is on hold or what is blocking it. One line per issue, no bullets or extra headings.
 
-If a list is empty, write "None." No code, no SQL, no tables. One line break between list items.
+**Order:** First output one line for each Backlog issue in the order listed below. Then output one line for each On Hold issue in the order listed. If a list is empty, output nothing for that list.
 
 **Issues on Backlog (with comment excerpts):**
 {backlog_issues_context}
