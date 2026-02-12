@@ -124,20 +124,23 @@ def generate_team_report(team_name: str, team_config: dict) -> tuple[str | None,
             ticket_name = (item.get("summary") or "").strip()
             return f"{sno}. {item['key']} - {item['status_name']} - {ticket_name} - {summary_of_comments}"
 
+        # Format: Issues on Backlog: then 1. key - status - ticket name - summary (one line per issue); same for Issues on Hold
         blockers_lines = ["### **Blockers, Delays or Issues Needing Attention**\n"]
         blockers_lines.append("**Issues on Backlog:**")
+        blockers_lines.append("")
         if backlog_list:
             for i, b in enumerate(backlog_list, start=1):
                 blockers_lines.append(_format_issue_line(b, i))
-                blockers_lines.append("")  # blank line so each item is on its own line
+                blockers_lines.append("")
         else:
             blockers_lines.append("None.")
         blockers_lines.append("")
         blockers_lines.append("**Issues on Hold:**")
+        blockers_lines.append("")
         if on_hold_list:
             for i, b in enumerate(on_hold_list, start=1):
                 blockers_lines.append(_format_issue_line(b, i))
-                blockers_lines.append("")  # blank line so each item is on its own line
+                blockers_lines.append("")
         else:
             blockers_lines.append("None.")
 
