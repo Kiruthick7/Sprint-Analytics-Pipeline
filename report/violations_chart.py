@@ -38,7 +38,7 @@ def aggregate_violation_counts(violations: list) -> dict:
     return counts
 
 
-def _violations_doughnut_chart_base64(counts: dict, size_inches: float = 6.5) -> str | None:
+def _violations_doughnut_chart_base64(counts: dict, size_inches: float = 9.0) -> str | None:
     """Generate a doughnut chart for violation counts; return base64 PNG or None if matplotlib unavailable."""
     total = sum(counts.get(l, 0) for l in VIOLATION_LABELS)
     if total == 0:
@@ -93,7 +93,7 @@ def _violations_doughnut_chart_base64(counts: dict, size_inches: float = 6.5) ->
     ax.axis("equal")
     plt.tight_layout()
     buf = io.BytesIO()
-    plt.savefig(buf, format="png", dpi=120, bbox_inches="tight", facecolor="none", edgecolor="none", transparent=True)
+    plt.savefig(buf, format="png", dpi=150, bbox_inches="tight", facecolor="none", edgecolor="none", transparent=True)
     plt.close(fig)
     buf.seek(0)
     return base64.b64encode(buf.read()).decode("ascii")
@@ -137,7 +137,7 @@ def violations_summary_table(counts: dict) -> str:
     if b64:
         out = (
             f'<p style="margin:0;padding:0"><img src="data:image/png;base64,{b64}" alt="Jira Verification Violations" '
-            'style="max-width:520px;height:auto;display:block;vertical-align:top;" /></p>\n'
+            'style="max-width:720px;width:100%;height:auto;display:block;vertical-align:top;" /></p>\n'
         )
     else:
         out = _violations_stacked_bar(counts)

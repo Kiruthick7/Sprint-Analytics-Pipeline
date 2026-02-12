@@ -27,7 +27,6 @@ from jira_api.jira_issues import (
     get_sprint_backlog_status_count,
     get_sprint_issues_no_story_points_count,
 )
-from report.llm_report import sprint_chain
 from report.violations_chart import aggregate_violation_counts, violations_summary_table
 from utils.markdown import escape_markdown_table_cell
 
@@ -84,26 +83,24 @@ def generate_team_report(team_name: str, team_config: dict) -> tuple[str | None,
         backlog_list = get_sprint_issues_by_status_with_context(sprint_id, sprint_name, "BACKLOG")
         on_hold_list = get_sprint_issues_by_status_with_context(sprint_id, sprint_name, "ON HOLD")
 
-        def _issues_context(items: list, empty_msg: str) -> str:
-            if not items:
-                return empty_msg
-            return "\n".join(
-                f"- {b['key']} - {b['status_name']} - {b['summary']}"
-                for b in items
-            )
+        def _format_backlog_on_hold_line(item: dict) -> str:
+            return f"- {item['key']} - {item['status_name']} - {item['summary']}"
 
-        # Order: backlog first, then on hold (passed to LLM in that order)
-        backlog_issues_context = _issues_context(backlog_list, "(No issues on Backlog in this sprint.)")
-        on_hold_issues_context = _issues_context(on_hold_list, "(No issues on Hold in this sprint.)")
-
-        result = sprint_chain.invoke({
-            "team_name": team_name,
-            "sprint_name": sprint_name,
-            "sprint_features": issues_markdown,
-            "backlog_issues_context": backlog_issues_context,
-            "on_hold_issues_context": on_hold_issues_context,
-        })
-        report = result.content if hasattr(result, "content") else str(result)
+        # Build "Blockers, Delays or Issues Needing Attention" with exact format (not via LLM so the list shows as-is)
+        # Order: backlog first, then on hold
+        blockers_lines = ["### **Blockers, Delays or Issues Needing Attention**\n"]
+        blockers_lines.append("**Issues on Backlog:**")
+        if backlog_list:
+            blockers_lines.extend(_format_backlog_on_hold_line(b) for b in backlog_list)
+        else:
+            blockers_lines.append("None.")
+        blockers_lines.append("")
+        blockers_lines.append("**Issues on Hold:**")
+        if on_hold_list:
+            blockers_lines.extend(_format_backlog_on_hold_line(b) for b in on_hold_list)
+        else:
+            blockers_lines.append("None.")
+        report = "\n".join(blockers_lines)
         report = re.sub(r"\n{3,}", "\n\n", report)
 
         detected_members = team_config.get("members") or get_team_members_from_sprint(sprint_name, board_id, sprint_id=sprint_id)
@@ -210,12 +207,10 @@ def build_consolidated_report(all_team_reports: list[dict]) -> str:
         person_url = f"{APP_BASE_URL}/person"
         velocity_url = (VELOCITY_DASHBOARD_URL or "").strip()
         consolidated += (
-            '<div style="text-align: center; margin: 0 0 12px 0;">'
-            f'<a href="{person_url}" target="_blank" rel="noopener" style="font-weight: bold; text-decoration: none;">🔍 Developer lookup</a>'
+            '<div style="width: 100%; text-align: center; margin: 16px 0;">'
+            '<p style="margin: 8px 0;"><a href="' + person_url + '" target="_blank" rel="noopener" style="font-weight: bold; text-decoration: none;">🔍 Developer lookup</a></p>'
+            '<p style="margin: 8px 0;">' + (f'<a href="{velocity_url}" target="_blank" rel="noopener" style="font-weight: bold; text-decoration: none;">📊 Sprint metrics dashboard</a>' if velocity_url else '<strong>📊 Sprint metrics dashboard</strong>') + '</p>'
             '</div>'
-            '<div style="text-align: center; margin: 0 0 12px 0;">'
-            + (f'<a href="{velocity_url}" target="_blank" rel="noopener" style="font-weight: bold; text-decoration: none;">📊 Sprint metrics dashboard</a>' if velocity_url else '<strong>📊 Sprint metrics dashboard</strong>')
-            + '</div>'
             f'<div style="margin: 12px 0;">'
             f'<iframe src="{person_url}" width="100%" height="700" '
             'style="border: 1px solid #dfe1e6; border-radius: 6px; min-height: 700px; background: #fff;" '
