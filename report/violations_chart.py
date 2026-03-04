@@ -2,8 +2,12 @@
 import base64
 import io
 import logging
+import warnings
 
 logger = logging.getLogger(__name__)
+
+# Suppress matplotlib font loading warnings (non-fatal, just noisy)
+logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
 
 VIOLATION_LABELS = [
     "Missing +1 AC confirmation comment from developer",

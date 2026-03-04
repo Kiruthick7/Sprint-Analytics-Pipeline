@@ -527,6 +527,37 @@ def _fetch_agile_report(board_id: int, sprint_id: int) -> dict | None:
 
 def _parse_spillover_from_report(data: dict) -> list[dict]:
     """Extract spillover issues list from sprint report response (Cloud/DC shapes)."""
+    def _spillover_story_points(item: dict, fields: dict) -> float:
+        """Best-effort extraction of story points from sprint report item."""
+        direct = None
+        if isinstance(fields, dict):
+            direct = fields.get(JIRA_STORY_POINTS_FIELD)
+            if direct is None and JIRA_STORY_POINTS_FIELD != "customfield_10016":
+                direct = fields.get("customfield_10016")
+            if direct is not None:
+                try:
+                    return float(direct)
+                except (TypeError, ValueError):
+                    pass
+
+        for stat_key in ("estimateStatistic", "currentEstimateStatistic", "estimated"):
+            stat = item.get(stat_key)
+            if stat is None and isinstance(fields, dict):
+                stat = fields.get(stat_key)
+            if not isinstance(stat, dict):
+                continue
+            stat_val = stat.get("statFieldValue")
+            if isinstance(stat_val, dict):
+                stat_val = stat_val.get("value")
+            if stat_val is None:
+                stat_val = stat.get("value")
+            try:
+                if stat_val is not None:
+                    return float(stat_val)
+            except (TypeError, ValueError):
+                continue
+        return 0.0
+
     issues_raw = None
     if isinstance(data.get("contents"), dict):
         c = data["contents"]
@@ -546,9 +577,10 @@ def _parse_spillover_from_report(data: dict) -> list[dict]:
             assignee = (assignee_raw.get("displayName") or "") if isinstance(assignee_raw, dict) else ""
             labels = fields.get("labels") if isinstance(fields, dict) else []
             label = "tech-debt" if labels and "tech-debt" in (labels if isinstance(labels, list) else []) else ""
-            result.append({"key": key, "summary": summary, "assignee": assignee, "label": label})
+            story_points = _spillover_story_points(item, fields if isinstance(fields, dict) else {})
+            result.append({"key": key, "summary": summary, "assignee": assignee, "label": label, "story_points": story_points})
         else:
-            result.append({"key": str(item), "summary": "", "assignee": "", "label": ""})
+            result.append({"key": str(item), "summary": "", "assignee": "", "label": "", "story_points": 0.0})
     return result
 
 
@@ -772,11 +804,17 @@ def get_velocity_history(board_id: int, num_sprints: int = 5) -> list[dict]:
     return out
 
 
-def get_spillover_via_jql(sprint_id: int) -> list[dict]:
+def get_spillover_via_jql(sprint_id: int, board_id: int | None = None) -> list[dict]:
     """Fallback: get spillover via JQL when Sprint Report API returns 404 (e.g. Jira Cloud)."""
     try:
         jql = f'sprint = {sprint_id} AND resolution is empty AND {JIRA_REPORT_ISSUE_TYPES_JQL} ORDER BY status ASC'
-        issues = jira_client.search_issues(jql, maxResults=200, fields=["key", "summary", "assignee", "labels"])
+        story_points_field = get_board_story_points_field(board_id) if board_id else None
+        if not story_points_field:
+            story_points_field = JIRA_STORY_POINTS_FIELD
+        fields = ["key", "summary", "assignee", "labels"]
+        if story_points_field:
+            fields.append(story_points_field)
+        issues = jira_client.search_issues(jql, maxResults=200, fields=fields)
         out = []
         for i in issues:
             labels = getattr(i.fields, "labels", None) or []
@@ -786,6 +824,7 @@ def get_spillover_via_jql(sprint_id: int) -> list[dict]:
                 "summary": (i.fields.summary or ""),
                 "assignee": (i.fields.assignee.displayName if i.fields.assignee else "") or "",
                 "label": label,
+                "story_points": _get_story_points(i, story_points_field=story_points_field),
             })
         return out
     except Exception as e:

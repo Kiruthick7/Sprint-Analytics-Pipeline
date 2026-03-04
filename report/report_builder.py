@@ -236,7 +236,7 @@ def generate_team_report(team_name: str, team_config: dict) -> tuple[str | None,
             last_closed_sprint_id = last_closed_sprint["id"]
             spillover, try_jql_fallback = get_sprint_report_spillover(board_id, last_closed_sprint_id)
             if try_jql_fallback:
-                spillover = get_spillover_via_jql(last_closed_sprint_id)
+                spillover = get_spillover_via_jql(last_closed_sprint_id, board_id=board_id)
         prev_sprint_name = (last_closed_sprint or {}).get("name") or ""
         prev_sprint_date = (last_closed_sprint or {}).get("endDate") or ""
         if spillover:
@@ -244,19 +244,28 @@ def generate_team_report(team_name: str, team_config: dict) -> tuple[str | None,
             name_label = prev_sprint_name or "last closed sprint"
             date_label = prev_sprint_date or "—"
             header += f"*Issues not completed in the last closed sprint ({name_label}, closed {date_label}) (carried over):*\n\n"
-            header += "| **Issue** | **Summary** | **Assignee** | **Label** |\n|------------|-------------|----------|------|\n"
+            header += "| **Issue** | **Summary** | **Assignee** | **Label** | **Story Points** |\n|------------|-------------|----------|------|------------------|\n"
+            spillover_story_points_total = 0.0
             for s in spillover:
                 key = s.get("key") or "—"
                 summary = escape_markdown_table_cell(s.get("summary") or "", 80)
                 assignee = escape_markdown_table_cell(str(s.get("assignee") or "—"), 40)
                 label = escape_markdown_table_cell(str(s.get("label") or ""), 20)
-                header += f"| [{key}]({JIRA_SERVER}/browse/{key}) | {summary} | {assignee} | {label} |\n"
+                story_points_raw = s.get("story_points")
+                story_points_display = _fmt_pts(story_points_raw)
+                try:
+                    spillover_story_points_total += float(story_points_raw or 0)
+                except (TypeError, ValueError):
+                    pass
+                header += f"| [{key}]({JIRA_SERVER}/browse/{key}) | {summary} | {assignee} | {label} | {story_points_display} |\n"
+            header += f"\n**Total Story Points Spilled (Team): {_fmt_pts(spillover_story_points_total)}**\n"
             header += "\n"
         else:
             prev_label = ""
             if prev_sprint_name or prev_sprint_date:
                 prev_label = f" ({prev_sprint_name}, closed {prev_sprint_date})" if prev_sprint_name and prev_sprint_date else f" ({prev_sprint_name})" if prev_sprint_name else f" (closed {prev_sprint_date})"
             header += f"### **Spillover from previous sprint**\n\n*No spillover issues from the last closed sprint{prev_label}.*\n\n"
+            header += "**Total Story Points Spilled (Team): 0**\n\n"
         header += "---\n\n"
         full_report = header + report
         return full_report, None, naming_warning, verification_violations
@@ -273,25 +282,19 @@ def build_consolidated_report(all_team_reports: list[dict]) -> str:
     date_str = datetime.now().strftime('%B %d, %Y')
 
     consolidated = (
-        f'<p style="text-align: center;">Date: {date_str}</p>\n'
-        f'<p style="text-align: center;">Teams Included: {teams}</p>\n\n'
+        f"<p style=\"text-align: center;\"><strong>Date:</strong> {date_str}</p>\n"
+        f"<p style=\"text-align: center;\"><strong>Teams Included:</strong> {teams}</p>\n\n"
         "---\n\n"
     )
 
     if APP_BASE_URL:
         person_url = f"{APP_BASE_URL}/person"
         velocity_url = (VELOCITY_DASHBOARD_URL or "").strip()
-        consolidated += (
-            '<div style="width: 100%; text-align: center; margin: 16px 0;">'
-            '<p style="margin: 8px 0;"><a href="' + person_url + '" target="_blank" rel="noopener" style="font-weight: bold; text-decoration: none;">🔍 Developer lookup</a></p>'
-            '<p style="margin: 8px 0;">' + (f'<a href="{velocity_url}" target="_blank" rel="noopener" style="font-weight: bold; text-decoration: none;">📊 Sprint metrics dashboard</a>' if velocity_url else '<strong>📊 Sprint metrics dashboard</strong>') + '</p>'
-            '</div>'
-            f'<div style="margin: 12px 0;">'
-            f'<iframe src="{person_url}" width="100%" height="700" '
-            'style="border: 1px solid #dfe1e6; border-radius: 6px; min-height: 700px; background: #fff;" '
-            'title="Developer lookup"></iframe>'
-            "</div>\n\n"
-        )
+        consolidated += f"<p style=\"text-align: center;\">🔍 <a href=\"{person_url}\" target=\"_blank\" rel=\"noopener\">Developer lookup</a></p>\n"
+        if velocity_url:
+            consolidated += f"<p style=\"text-align: center;\">📊 <a href=\"{velocity_url}\" target=\"_blank\" rel=\"noopener\">Sprint metrics dashboard</a></p>\n\n"
+        else:
+            consolidated += "<p style=\"text-align: center;\">📊 Sprint metrics dashboard</p>\n\n"
 
     for team_data in all_team_reports:
         team_name = team_data["team_name"]

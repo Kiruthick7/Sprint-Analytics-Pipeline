@@ -25,13 +25,6 @@ def post_to_confluence(title: str, content: str) -> str | None:
         auth = (CONFLUENCE_USER, CONFLUENCE_TOKEN)
         headers = {"Content-Type": "application/json"}
         html_content = markdown.markdown(content, extensions=['tables', 'fenced_code'])
-        # Wrap in a div that matches Confluence editor styling (font and spacing) so API-updated pages
-        # look like editor-created content; avoids formatting/font changes vs. old versions.
-        html_content = (
-            '<div class="wiki-content" style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, Oxygen, Ubuntu, sans-serif; font-size: 14px; line-height: 1.6; color: #172b4d;">'
-            + html_content
-            + "</div>"
-        )
 
         # Search for existing page by title so we overwrite it instead of creating a new one each run
         search_url = f"{api_url}?type=page&spaceKey={quote(CONFLUENCE_SPACE_KEY)}&title={quote(title)}&expand=version"
