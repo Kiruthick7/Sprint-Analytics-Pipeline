@@ -57,3 +57,24 @@ JIRA_PERSON_LOOKUP_JQL_FILTER = (
     f"AND {JIRA_REPORT_ISSUE_TYPES_JQL} "
     "ORDER BY status ASC"
 )
+
+# Jira verification violation labels (full descriptions and short names for charts)
+VIOLATION_LABELS = [
+    "Missing +1 AC confirmation comment from developer",
+    "Missing PR link (Code Review step)",
+    "No time logged (Post-Merge step)",
+    "No dev/local evidence attached (Post-Merge step)",
+    "Branch Cleanup not mentioned",
+    "Concourse link not pasted in Jira (concourse-ci.hy-vee.cloud/builds)",
+    "Rollback strategy not mentioned",
+]
+
+VIOLATION_SHORT = [
+    "Missing +1 AC comment",
+    "Missing PR link",
+    "No time logged",
+    "No dev/local evidence",
+    "Branch Cleanup not mentioned",
+    "Concourse link not pasted",
+    "Rollback strategy not mentioned",
+]

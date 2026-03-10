@@ -5,6 +5,7 @@ import logging
 from config import jira_client, JIRA_SERVER, JIRA_STORY_POINTS_FIELD
 from team_config import JIRA_CUSTOM_JQL_FILTER, JIRA_REPORT_ISSUE_TYPES_JQL
 from utils.markdown import escape_markdown_table_cell
+from utils.jira_helpers import get_story_points
 
 from jira_api.verification_helpers import check_verification_checklist
 
@@ -215,46 +216,10 @@ def get_sprint_issues_no_story_points_count(
         return 0
     try:
         issues = jira_client.search_issues(jql, maxResults=1000, fields=[field])
-        return sum(1 for i in issues if _get_story_points(i, story_points_field=field) == 0)
+        return sum(1 for i in issues if get_story_points(i, story_points_field=field) == 0)
     except Exception as e:
         logger.warning("get_sprint_issues_no_story_points_count: %s", e)
         return 0
-
-
-def _parse_story_point_value(raw) -> float:
-    """Parse a story point value from API (number, string, or dict like {'value': 3})."""
-    if raw is None:
-        return 0.0
-    if isinstance(raw, dict):
-        raw = raw.get("value") or raw.get("id")
-    if raw is None:
-        return 0.0
-    try:
-        v = float(raw)
-        return v if v >= 0 else 0.0
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def _get_story_points(issue, story_points_field: str | None = None) -> float:
-    """Story points from issue (board config or JIRA_STORY_POINTS_FIELD)."""
-    field = story_points_field or JIRA_STORY_POINTS_FIELD
-    if not field:
-        return 0.0
-    raw = getattr(issue.fields, field, None)
-    if raw is not None:
-        v = _parse_story_point_value(raw)
-        if v >= 0:
-            return v
-    raw_top = getattr(issue, "raw", None) or {}
-    fields_dict = raw_top.get("fields") if isinstance(raw_top, dict) else {}
-    if isinstance(fields_dict, dict):
-        raw = fields_dict.get(field)
-        if raw is not None:
-            v = _parse_story_point_value(raw)
-            if v >= 0:
-                return v
-    return 0.0
 
 
 def fetch_issues_for_team(
@@ -275,7 +240,7 @@ def fetch_issues_for_team(
                 verification_result = check_verification_checklist(jira_client, issue)
                 if not verification_result["is_compliant"]:
                     verification_violations.append(verification_result)
-                total_story_points += _get_story_points(issue)
+                total_story_points += get_story_points(issue)
                 icon = "✅" if verification_result["is_compliant"] else "⚠️"
                 summary = (issue.fields.summary or "")[:80].replace("\n", " ")
                 status = issue.fields.status.name if issue.fields.status else "—"
@@ -284,6 +249,6 @@ def fetch_issues_for_team(
             except Exception as e:
                 logger.error(f"Error processing issue {issue.key}: {e}")
         return "\n".join(lines), len(issues), verification_violations, total_story_points
-    except Exception as e:
+    except JIRAError as e:
         logger.error(f"Failed to fetch issues for team {team_name}: {e}")
         return "", 0, [], 0

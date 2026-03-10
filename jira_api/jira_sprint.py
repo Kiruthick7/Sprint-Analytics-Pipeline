@@ -4,16 +4,16 @@ import fnmatch
 import logging
 import re
 import requests
+from jira.exceptions import JIRAError
 
 from config import jira_client, JIRA_SERVER, JIRA_USER_NAME, JIRA_TOKEN, JIRA_STORY_POINTS_FIELD
+from utils.jira_helpers import get_story_points
 
 try:
     from team_config import JIRA_PERSON_LOOKUP_JQL_FILTER, JIRA_REPORT_ISSUE_TYPES_JQL
 except ImportError:
     JIRA_PERSON_LOOKUP_JQL_FILTER = ""
     JIRA_REPORT_ISSUE_TYPES_JQL = 'issuetype IN ("Story", "Bug")'
-
-from jira_api.jira_issues import _get_story_points
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +73,7 @@ def get_active_sprint_info(board_id: int) -> dict | None:
     try:
         sprints = jira_client.sprints(board_id, state='active')
         return _sprint_info_from_sprint(sprints[0]) if sprints else None
-    except Exception as e:
+    except (JIRAError, requests.exceptions.RequestException) as e:
         logger.error(f"Failed to fetch sprint info for board {board_id}: {e}")
         return None
 
@@ -132,7 +132,7 @@ def get_allowed_sprint_info(
                 if not is_excluded(name) and is_included(name):
                     return _sprint_info_from_sprint(s)
         return None
-    except Exception as e:
+    except (JIRAError, requests.exceptions.RequestException) as e:
         logger.debug(f"Failed to get allowed sprint info for board {board_id}: {e}")
         return None
 
@@ -429,27 +429,35 @@ def get_board_backlog_count(board_id: int) -> int | None:
     return len(issues)
 
 
-# Cache board config, story-points field, and status→bucket per board_id (avoids repeated API calls and log noise).
-_board_config_cache: dict[int, dict | None] = {}
-_board_sp_field_cache: dict[int, str | None] = {}  # None = not found, "" = use default
-_board_status_to_bucket_cache: dict[int, dict[str, str]] = {}
+# Consolidated board cache: stores config, story-points field, and status→bucket per board_id
+# Structure: { board_id: { "config": dict, "sp_field": str|None, "status_map": dict[str, str] } }
+_board_cache: dict[int, dict] = {}
 
 
 def _get_board_config(board_id: int) -> dict | None:
     """Get board configuration (cached). One Agile API call per board per process."""
-    if board_id not in _board_config_cache:
-        _board_config_cache[board_id] = _agile_get(board_id, "/configuration")
-    out = _board_config_cache[board_id]
-    return out if isinstance(out, dict) else None
+    if board_id not in _board_cache:
+        _board_cache[board_id] = {}
+
+    if "config" not in _board_cache[board_id]:
+        config = _agile_get(board_id, "/configuration")
+        _board_cache[board_id]["config"] = config
+
+    config = _board_cache[board_id]["config"]
+    return config if isinstance(config, dict) else None
 
 
 def get_board_story_points_field(board_id: int) -> str | None:
     """Get the story points custom field ID used by this board (cached). Returns None if not found."""
-    if board_id in _board_sp_field_cache:
-        return _board_sp_field_cache[board_id]
+    if board_id not in _board_cache:
+        _board_cache[board_id] = {}
+
+    if "sp_field" in _board_cache[board_id]:
+        return _board_cache[board_id]["sp_field"]
+
     data = _get_board_config(board_id)
     if not data:
-        _board_sp_field_cache[board_id] = None
+        _board_cache[board_id]["sp_field"] = None
         return None
     est = data.get("estimation")
     fid = None
@@ -459,10 +467,10 @@ def get_board_story_points_field(board_id: int) -> str | None:
             fid = field.get("fieldId")
     if fid:
         logger.debug("get_board_story_points_field: board_id=%s -> %s", board_id, fid)
-        _board_sp_field_cache[board_id] = fid
+        _board_cache[board_id]["sp_field"] = fid
         return fid
     logger.debug("get_board_story_points_field: board_id=%s -> not found", board_id)
-    _board_sp_field_cache[board_id] = None
+    _board_cache[board_id]["sp_field"] = None
     return None
 
 
@@ -471,19 +479,23 @@ def get_board_status_to_bucket(board_id: int) -> dict[str, str]:
     Map status id -> 'not_started' | 'in_progress' | 'completed' | 'blocked' from board column config (cached).
     First column = not_started, last column = completed; columns named Blocked/On hold = blocked; rest = in_progress.
     """
-    if board_id in _board_status_to_bucket_cache:
-        return _board_status_to_bucket_cache[board_id]
+    if board_id not in _board_cache:
+        _board_cache[board_id] = {}
+
+    if "status_map" in _board_cache[board_id]:
+        return _board_cache[board_id]["status_map"]
+
     data = _get_board_config(board_id)
     if not data:
-        _board_status_to_bucket_cache[board_id] = {}
+        _board_cache[board_id]["status_map"] = {}
         return {}
     col_config = data.get("columnConfig")
     if not isinstance(col_config, dict):
-        _board_status_to_bucket_cache[board_id] = {}
+        _board_cache[board_id]["status_map"] = {}
         return {}
     columns = col_config.get("columns")
     if not isinstance(columns, list) or not columns:
-        _board_status_to_bucket_cache[board_id] = {}
+        _board_cache[board_id]["status_map"] = {}
         return {}
     out = {}
     for idx, col in enumerate(columns):
@@ -505,7 +517,7 @@ def get_board_status_to_bucket(board_id: int) -> dict[str, str]:
             if isinstance(st, dict) and st.get("id") is not None:
                 out[str(st["id"])] = bucket
     logger.debug("get_board_status_to_bucket: board_id=%s -> %s statuses in %s columns", board_id, len(out), len(columns))
-    _board_status_to_bucket_cache[board_id] = out
+    _board_cache[board_id]["status_map"] = out
     return out
 
 
@@ -698,7 +710,7 @@ def get_sprint_story_points_from_issues(
         for i in issues:
             if use_report_jql and _is_subtask(i):
                 continue
-            pts = _get_story_points(i, story_points_field=sp_field)
+            pts = get_story_points(i, story_points_field=sp_field)
             out["total"] += pts
             if use_report_jql:
                 if _is_resolved(i):
@@ -824,7 +836,7 @@ def get_spillover_via_jql(sprint_id: int, board_id: int | None = None) -> list[d
                 "summary": (i.fields.summary or ""),
                 "assignee": (i.fields.assignee.displayName if i.fields.assignee else "") or "",
                 "label": label,
-                "story_points": _get_story_points(i, story_points_field=story_points_field),
+                "story_points": get_story_points(i, story_points_field=story_points_field),
             })
         return out
     except Exception as e:

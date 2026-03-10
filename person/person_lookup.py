@@ -1,8 +1,11 @@
 """Individual person lookup: list developers, sprints per board, and person's Jira details."""
 import logging
+import time
+from jira.exceptions import JIRAError
+
 from config import jira_client, JIRA_SERVER, JIRA_STORY_POINTS_FIELD
 from team_config import TEAMS_CONFIG, JIRA_PERSON_LOOKUP_JQL_FILTER
-from jira_api.jira_issues import _get_story_points
+from utils.jira_helpers import get_story_points
 from jira_api.jira_sprint import (
     get_board_status_to_bucket,
     get_board_story_points_field,
@@ -245,14 +248,18 @@ def get_sprints_for_board(board_id: int, developer_name: str | None = None) -> l
         person_sprint_ids &= board_sprint_ids
         filtered = [s for s in out if s["id"] in person_sprint_ids]
         if filtered:
-            logger.debug("get_sprints_for_board: board_id=%s developer=%s -> %s sprints", board_id, developer_name, len(filtered))
+            logger.info("get_sprints_for_board: board_id=%s developer=%s -> %s sprints (bulk query)", board_id, developer_name, len(filtered))
             return filtered
+        # Log when bulk query returns 0 sprints (triggers fallback)
+        logger.warning("get_sprints_for_board: bulk query returned 0 sprints for board_id=%s developer=%s (total board sprints: %s). Falling back to per-sprint queries.", board_id, developer_name, len(out))
     except Exception as e:
         logger.warning(f"get_sprints_for_board (assignee search) board_id={board_id} developer={developer_name}: {e}")
 
     # Fallback: per-sprint check (one JQL per board sprint) when single-query returns 0 sprints
+    # WARNING: This can be slow for developers with many sprints. Consider investigating why bulk query failed.
     try:
         filtered = []
+        fallback_start_time = time.time()
         for s in out:
             jql = f'assignee = "{developer_name}" AND sprint = {s["id"]}'
             if JIRA_PERSON_LOOKUP_JQL_FILTER:
@@ -260,7 +267,8 @@ def get_sprints_for_board(board_id: int, developer_name: str | None = None) -> l
             issues = jira_client.search_issues(jql, maxResults=1, fields=["key"])
             if issues:
                 filtered.append(s)
-        logger.debug("get_sprints_for_board: board_id=%s developer=%s -> %s sprints (per-sprint fallback)", board_id, developer_name, len(filtered))
+        fallback_duration = time.time() - fallback_start_time
+        logger.warning("get_sprints_for_board: board_id=%s developer=%s -> %s sprints (per-sprint fallback, %s queries in %.2fs)", board_id, developer_name, len(filtered), len(out), fallback_duration)
         return filtered
     except Exception as e:
         logger.warning(f"get_sprints_for_board filter by person board_id={board_id} developer={developer_name}: {e}")
@@ -330,7 +338,7 @@ def get_person_details(developer_name: str, board_id: int, sprint_id: int | None
         issue_keys_in_list = {i.key for i in issues}
         parent_keys_to_fetch = set()
         for i in issues:
-            pts = _get_story_points(i, story_points_field=board_sp_field)
+            pts = get_story_points(i, story_points_field=board_sp_field)
             if pts > 0:
                 continue
             parent = getattr(i.fields, "parent", None)
@@ -344,7 +352,7 @@ def get_person_details(developer_name: str, board_id: int, sprint_id: int | None
             for pkey in parent_keys_to_fetch:
                 try:
                     parent_issue = jira_client.issue(pkey, fields=parent_fields)
-                    parent_points_cache[pkey] = _get_story_points(parent_issue, story_points_field=board_sp_field)
+                    parent_points_cache[pkey] = get_story_points(parent_issue, story_points_field=board_sp_field)
                 except Exception as e:
                     logger.debug("Could not fetch parent %s for story points: %s", pkey, e)
 
@@ -368,7 +376,7 @@ def get_person_details(developer_name: str, board_id: int, sprint_id: int | None
             if status_id is None and status_obj is not None:
                 raw_status = (getattr(i, "raw", None) or {}).get("fields", {}).get("status")
                 status_id = raw_status.get("id") if isinstance(raw_status, dict) else None
-            pts = _get_story_points(i, story_points_field=board_sp_field)
+            pts = get_story_points(i, story_points_field=board_sp_field)
             parent = getattr(i.fields, "parent", None)
             parent_key = getattr(parent, "key", None) if parent and not isinstance(parent, dict) else (parent.get("key") if isinstance(parent, dict) else None)
             if pts == 0 and parent_key and parent_key in parent_points_cache:

@@ -2,17 +2,17 @@
 
 This guide gets you to:
 
-1. **Run the sprint report on a schedule** (Monday & Thursday 9 AM IST) using **GitHub Actions**.
+1. **Run the sprint report on a schedule** (daily Mon-Sat 7 AM IST) using **GitHub Actions**.
 2. **Host the Developer lookup page** so anyone can open a URL, enter developer name / team / sprint, and fetch details from Jira. The app is deployed from your GitHub repo to **Render** (free or paid) or **Railway** (Hobby for always-on), so the lookup is hosted at a public URL.
 
 **Why two parts?** GitHub Actions runs **jobs** (start → run → exit). It does not run a long-lived web server. So:
 
-- **Report:** A scheduled workflow runs `python main.py` (or calls your deployed app’s `/report`).  
+- **Report:** A scheduled workflow runs `python main.py` (or calls your deployed app’s `/report`).
 - **Developer lookup:** The same app is **deployed to Render or Railway** so the HTML page and APIs (`/api/developers`, `/api/sprints`, `/api/person`) are served at a URL.
 
 After setup you will have:
 
-- **Report:** Runs automatically Mon & Thu 9 AM IST (and manually from the Actions tab).
+- **Report:** Runs automatically daily Mon-Sat at 7 AM IST (and manually from the Actions tab).
 - **Developer lookup:** Live at your Render URL (e.g. `https://your-app.onrender.com/`) or Railway URL (e.g. `https://your-service.up.railway.app/`).
 - **Confluence:** Can show the “Developer lookup” and “Sprint metrics dashboard” links. When the report runs via **GitHub Actions**, add **`APP_BASE_URL`** and optionally **`VELOCITY_DASHBOARD_URL`** as repository secrets so those links appear in the report.
 
@@ -32,7 +32,7 @@ The **Developer lookup** page needs a **backend** that:
 
 That logic runs in your **Python app**. GitHub Pages cannot run it. So we need a host that runs the app (Render, Railway, Cloud Run, etc.).
 
-**Could we use GitHub Pages for the UI and something else for the API?**  
+**Could we use GitHub Pages for the UI and something else for the API?**
 Yes: you could put the **static** HTML/JS on Pages and deploy **only the API** (e.g. as a serverless function or a small service) elsewhere. The page would then call that API URL from JavaScript. You’d still need a backend somewhere (Render, a Cloud Function, etc.); Pages would only serve the frontend. That’s more setup (CORS, two URLs, wiring the frontend to the API URL), so this guide uses a single deployment (Render) that serves both the page and the APIs.
 
 ---
@@ -104,7 +104,7 @@ These secrets are used by the GitHub Actions workflow when it runs the report.
 
 The workflow file is already in the repo at `.github/workflows/jira-report.yml`. It:
 
-- Runs on a **schedule**: 03:30 UTC on Monday and Thursday (= 9:00 AM IST).
+- Runs on a **schedule**: 01:30 UTC daily Monday through Saturday (= 7:00 AM IST Mon-Sat).
 - Can be **run manually**: Actions → Jira Sprint Report → Run workflow.
 
 ### Step 2.1: Confirm the workflow file
@@ -116,7 +116,9 @@ name: Jira Sprint Report
 
 on:
   schedule:
-    - cron: '30 3 * * 1,4'   # 9 AM IST Mon & Thu
+    # Daily at 7:00 AM IST = 01:30 UTC
+    # Monday through Saturday (1=Mon, 6=Sat)
+    - cron: '30 1 * * 1-6'
   workflow_dispatch:
 
 jobs:
@@ -152,20 +154,20 @@ jobs:
 2. When the job finishes, open the run and check the “Run report” step for errors.
 3. Confirm in Confluence and Teams that the report and link were posted.
 
-After this, the report will also run automatically every Mon & Thu at 9 AM IST.
+After this, the report will also run automatically daily Mon-Sat at 7 AM IST.
 
-### If the scheduled run didn’t happen (e.g. no run at 9 AM)
+### If the scheduled run didn't happen (e.g. no run at 7 AM)
 
-1. **Check that the workflow is enabled**  
+1. **Check that the workflow is enabled**
    Actions → **Jira Sprint Report** → look for a yellow banner like “This workflow was disabled”. If you see it, click **Enable workflow**. GitHub can auto-disable scheduled workflows after long inactivity.
 
-2. **Confirm the workflow file is on the default branch**  
+2. **Confirm the workflow file is on the default branch**
    The schedule runs from the workflow on the repo’s default branch (usually `main`). If the workflow was only added on a feature branch, merge it to the default branch.
 
-3. **Allow for delay**  
-   Scheduled runs use UTC and can be delayed (often up to ~15 minutes). If it’s only a few minutes past 9 AM IST, wait a bit and refresh the Actions list. Filter by “Scheduled” to see schedule-triggered runs.
+3. **Allow for delay**
+   Scheduled runs use UTC and can be delayed (often up to ~15 minutes). If it's only a few minutes past 7 AM IST, wait a bit and refresh the Actions list. Filter by "Scheduled" to see schedule-triggered runs.
 
-4. **Forked repos**  
+4. **Forked repos**
    In a fork, scheduled workflows are disabled by default. Enable the workflow in the Actions tab if this repo is a fork.
 
 If it still doesn’t run, use **Run workflow** to trigger it manually; the schedule will continue on the next Mon/Thu.

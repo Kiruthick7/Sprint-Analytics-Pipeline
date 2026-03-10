@@ -4,29 +4,9 @@ import io
 import logging
 import warnings
 
+from team_config import VIOLATION_LABELS, VIOLATION_SHORT
+
 logger = logging.getLogger(__name__)
-
-# Suppress matplotlib font loading warnings (non-fatal, just noisy)
-logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
-
-VIOLATION_LABELS = [
-    "Missing +1 AC confirmation comment from developer",
-    "Missing PR link (Code Review step)",
-    "No time logged (Post-Merge step)",
-    "No dev/local evidence attached (Post-Merge step)",
-    "Branch Cleanup not mentioned",
-    "Concourse link not pasted in Jira (concourse-ci.hy-vee.cloud/builds)",
-    "Rollback strategy not mentioned",
-]
-VIOLATION_SHORT = [
-    "Missing +1 AC comment",
-    "Missing PR link",
-    "No time logged",
-    "No dev/local evidence",
-    "Branch Cleanup not mentioned",
-    "Concourse link not pasted",
-    "Rollback strategy not mentioned",
-]
 
 _BAR_CHARS = ("█", "▓", "▒", "░", "□")
 _STACKED_BAR_WIDTH = 48
@@ -48,8 +28,6 @@ def _violations_doughnut_chart_base64(counts: dict, size_inches: float = 9.0) ->
     if total == 0:
         return None
     try:
-        import matplotlib
-        matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         from matplotlib.patches import Circle
         import matplotlib.patheffects as path_effects

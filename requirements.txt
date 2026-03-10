@@ -1,16 +1,16 @@
-# Core
+# Core dependencies (pinned for stability)
 functions-framework==3.10.0
 requests==2.32.3
 python-dotenv==1.0.1
 jira==3.10.5
-markdown
-matplotlib>=3.7.0
+markdown==3.7.0  # Pinned to prevent version mismatch issues
+matplotlib>=3.7.0  # For violation charts (Agg backend, centralized config)
 
-# LangChain (AI summary)
+# LangChain (for LLM-powered Blockers comment summaries)
 langchain>=1.2,<3
 langchain-core>=1.2,<3
-langchain-google-genai>=0.1.0
-langchain-groq>=1.0
+langchain-google-genai>=0.1.0  # Gemini support
+langchain-groq>=1.0  # Groq support
 
-# Google Cloud (optional logging)
+# Google Cloud (optional - for enhanced logging in GCP environments)
 google-cloud-logging>=3.13.0

@@ -2,7 +2,7 @@
 
 This guide has two parts:
 
-1. **Ways to run the sprint report** — Generate the report → post to Confluence → notify Teams (including scheduled options: Mon & Thu 9 AM IST).
+1. **Ways to run the sprint report** — Generate the report → post to Confluence → notify Teams (including scheduled options: daily Mon-Sat 7 AM IST for both GCP and GitHub Actions).
 2. **Using the Developer lookup page** — The HTML page where a user enters developer name, team, and sprint, then fetches that person’s Jira details (story points and issues).
 
 ---
@@ -86,8 +86,8 @@ Edit `team_config.py`: set `board_id` for each team. Use `members: []` to auto-d
    Keep the terminal open. Use `--debug` to avoid multi-worker issues (e.g. SIGSEGV) when hitting `/report`.
 
 3. In your browser:
-   - **Developer lookup:** http://localhost:8080/ or http://localhost:8080/person  
-   - **Run the report:** http://localhost:8080/report  
+   - **Developer lookup:** http://localhost:8080/ or http://localhost:8080/person
+   - **Run the report:** http://localhost:8080/report
 
 4. When you open `/report`, the app runs the full report (same as Method 1) and returns a short summary in the browser.
 
@@ -97,20 +97,20 @@ Edit `team_config.py`: set `board_id` for each team. Use `members: []` to auto-d
 
 ## Method 3: Google Cloud — Cloud Function + Cloud Scheduler
 
-**Use when:** You want the report to run automatically on a schedule (e.g. Mon & Thu 9 AM IST) without keeping your machine on.
+**Use when:** You want the report to run automatically on a schedule (daily Mon-Sat 7 AM IST) without keeping your machine on.
 
 ### Steps
 
 1. Complete **Shared setup** above.
 2. In `.env`, add GCP variables:
-   - `GCP_PROJECT_ID` — your GCP project ID  
-   - `GCP_REGION` — e.g. `us-central1`  
-   - `CLOUD_FUNCTION_NAME` — e.g. `jira-daily-report`  
+   - `GCP_PROJECT_ID` — your GCP project ID
+   - `GCP_REGION` — e.g. `us-central1`
+   - `CLOUD_FUNCTION_NAME` — e.g. `jira-daily-report`
    Keep all Jira, Confluence, Teams, and LLM vars set.
 
-3. (Optional) Set schedule before first deploy. Default is **Mon & Thu 9 AM IST**:
+3. (Optional) Set schedule before first deploy. Default is **daily Mon-Sat 7 AM IST**:
    ```bash
-   SCHEDULE_CRON="0 9 * * 1,4"    # 1=Mon, 4=Thu
+   SCHEDULE_CRON="30 1 * * 1-6"   # Daily Mon-Sat 7 AM IST (01:30 UTC)
    SCHEDULE_TIMEZONE=Asia/Kolkata
    ```
 
@@ -174,17 +174,22 @@ Edit `team_config.py`: set `board_id` for each team. Use `members: []` to auto-d
    ```
 4. Add one line (choose the one that matches your server’s timezone).
 
-   **If the server uses IST (Asia/Kolkata):**  
-   Run at 9:00 AM on Monday and Thursday:
+   **If the server uses IST (Asia/Kolkata):**
+   Run daily Mon-Sat at 7:00 AM IST (matches GCP and GitHub Actions defaults):
    ```bash
-   0 9 * * 1,4 cd /path/to/Jira && /usr/bin/python3 main.py
+   30 1 * * 1-6 cd /path/to/Jira && /usr/bin/python3 main.py
    ```
    Replace `/path/to/Jira` with the real path and `/usr/bin/python3` with `which python3` if different.
 
-   **If the server uses UTC:**  
-   9 AM IST = 03:30 UTC. Run at 03:30 UTC on Monday and Thursday:
+   **Alternative - If you prefer Mon & Thu only:**
    ```bash
-   30 3 * * 1,4 cd /path/to/Jira && /usr/bin/python3 main.py
+   0 9 * * 1,4 cd /path/to/Jira && /usr/bin/python3 main.py
+   ```
+
+   **If the server uses UTC:**
+   7 AM IST = 01:30 UTC. Run daily Mon-Sat at 01:30 UTC:
+   ```bash
+   30 1 * * 1-6 cd /path/to/Jira && /usr/bin/python3 main.py
    ```
 
 5. Save and exit. The report will run at the given times.
@@ -199,7 +204,7 @@ Edit `team_config.py`: set `board_id` for each team. Use `members: []` to auto-d
 
 ### Steps
 
-1. The workflow file is already in the repo: `.github/workflows/jira-report.yml`. It runs at **03:30 UTC on Mon & Thu** (= 9 AM IST).
+1. The workflow file is already in the repo: `.github/workflows/jira-report.yml`. It runs **daily Mon-Sat at 01:30 UTC** (= 7 AM IST).
 2. In your GitHub repo: **Settings → Secrets and variables → Actions**. Add these secrets (same as `.env`). For the **Developer lookup** and **Sprint metrics dashboard** links to appear in the Confluence report, also add **`APP_BASE_URL`** (your hosted app URL, no trailing slash) and optionally **`VELOCITY_DASHBOARD_URL`**. For a full walkthrough that also hosts the Developer lookup at a public URL, see [GitHub Actions + Developer lookup (Render/Railway)](GITHUB_ACTIONS_AND_DEVELOPER_LOOKUP.md).
    - `JIRA_USER_NAME`
    - `JIRA_TOKEN`
@@ -245,7 +250,7 @@ The app will run the full report (Jira → Confluence → Teams) and return a sh
 1. Build and push the app image (e.g. using the repo’s `Dockerfile`) to Artifact Registry or Container Registry.
 2. Create a **Cloud Run Job** that runs the same container with the same env vars, and set the command to run the report (e.g. `python main.py` or a small script that does the equivalent of calling the report logic).
 3. Create a **Cloud Scheduler** HTTP job that targets the Cloud Run Jobs API to start the job (or use a pub/sub → Cloud Run Job trigger if you prefer).
-4. Set the schedule to your desired cron (e.g. `0 9 * * 1,4` in `Asia/Kolkata`).
+4. Set the schedule to your desired cron (e.g. `30 1 * * 1-6` for daily Mon-Sat 7 AM IST in `Asia/Kolkata` timezone).
 
 Detailed commands depend on your image name and project; the idea is: **scheduler triggers → Cloud Run Job runs once → job runs `main.py` (or report entrypoint) with env vars**.
 
@@ -257,10 +262,10 @@ Detailed commands depend on your image name and project; the idea is: **schedule
 |--------|-----------|------------|----------|
 | 1. Run once locally | No | No | One-off run from your machine |
 | 2. Web app locally | No (you hit /report) | No | Local dev + manual report run |
-| 3. Cloud Function + Scheduler | Yes (Mon & Thu 9 AM IST) | Yes | Fully managed schedule on GCP |
+| 3. Cloud Function + Scheduler | Yes (daily Mon-Sat 7 AM IST) | Yes | Fully managed schedule on GCP |
 | 4. Terraform (GCP) | Yes (configurable) | Yes | IaC for function + scheduler |
 | 5. Cron on server | Yes (you set cron) | No | Your own VM or server |
-| 6. GitHub Actions | Yes (Mon & Thu 9 AM IST) | No | Repo on GitHub, no server |
+| 6. GitHub Actions | Yes (daily Mon-Sat 7 AM IST) | No | Repo on GitHub, no server |
 | 7. HTTP trigger | No (on demand) | Depends where app runs | Ad-hoc run when app is deployed |
 | 8. Cloud Run Job + Scheduler | Yes | Yes | GCP with job instead of function |
 
@@ -290,22 +295,22 @@ If you only run **Method 1** (`python main.py` once), there is **no server** run
 
 ### Step-by-step: how a user uses the page
 
-1. **Open the page**  
+1. **Open the page**
    Go to the Developer lookup URL (see table above). The page title is **“Developer lookup”** and the subtitle says to search by developer name and pick team/sprint.
 
-2. **Enter developer name**  
+2. **Enter developer name**
    In the **Developer** field, start typing a name. The list of developers is loaded from Jira (assignees from each team’s sprint). Pick the developer from the dropdown that appears.
 
-3. **Team**  
+3. **Team**
    After you select a developer, the **Team** field is filled automatically (read-only) based on the teams that developer belongs to. If a developer appears in more than one team, you may need to pick the right one from the dropdown if the UI supports it; otherwise the first match is used.
 
-4. **Select sprint**  
+4. **Select sprint**
    In the **Sprint** dropdown, choose the sprint you want. The list is loaded from Jira for that board (and optionally filtered by the selected developer). Options usually include active, future, and recent closed sprints.
 
-5. **Fetch from Jira**  
+5. **Fetch from Jira**
    Click **“Fetch from Jira”**. The page calls the app’s `/api/person` endpoint with the selected developer, board (team), and sprint. The app fetches data from Jira and returns story points breakdown and issues.
 
-6. **View results**  
+6. **View results**
    Below the form you’ll see:
    - **Sprint** and **developer** summary (e.g. sprint name, total story points).
    - **Story points:** Total, Not started, In progress, Completed, Blocked/On hold (with doughnut charts).

@@ -1,3 +1,7 @@
+# Jira Daily Report - Terraform Configuration
+# Deploys Cloud Function (Gen2) + Cloud Scheduler for Monday & Thursday 9 AM IST
+# Features: Confluence API v2, optimized caching, comprehensive error handling, performance logging
+
 terraform {
   required_version = ">= 1.0"
   required_providers {
@@ -31,9 +35,9 @@ variable "function_name" {
 }
 
 variable "schedule" {
-  description = "Cron schedule for Cloud Scheduler (default: Monday and Thursday 9 AM IST)"
+  description = "Cron schedule for Cloud Scheduler (default: daily Mon-Sat 7 AM IST)"
   type        = string
-  default     = "0 9 * * 1,4"
+  default     = "30 1 * * 1-6"
 }
 
 variable "time_zone" {
@@ -62,7 +66,7 @@ variable "teams_webhook" {
 }
 
 variable "confluence_base_url" {
-  description = "Confluence base URL (e.g. https://your-site.atlassian.net/wiki)"
+  description = "Confluence base URL for REST API v2 (e.g. https://your-site.atlassian.net/wiki)"
   type        = string
   default     = ""
 }
@@ -151,10 +155,11 @@ resource "google_storage_bucket_object" "function_source" {
 }
 
 # Create Cloud Function (Gen 2)
+# Features: Confluence API v2, consolidated caching, optimized error handling
 resource "google_cloudfunctions2_function" "jira_report_function" {
   name        = var.function_name
   location    = var.region
-  description = "Daily Jira Status Report Generator"
+  description = "Daily Jira Status Report Generator with Developer Lookup"
 
   build_config {
     runtime     = "python311"

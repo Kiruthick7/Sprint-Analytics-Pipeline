@@ -36,6 +36,54 @@ def _json_response(data: Any, status: int = 200) -> tuple[str, int, dict]:
     return (json.dumps(data), status, {"Content-Type": "application/json; charset=utf-8"})
 
 
+def _generate_reports_internal() -> tuple[list[dict], dict, str | None]:
+    """Core report generation logic shared by both HTTP handler and GitHub Actions.
+
+    Returns:
+        tuple: (all_team_reports, results, confluence_url)
+            - all_team_reports: List of successful team report dicts
+            - results: Dict with timestamp and per-team status
+            - confluence_url: URL of posted Confluence page or None
+    """
+    results = {"timestamp": datetime.now().isoformat(), "teams": {}}
+    all_team_reports = []
+
+    for idx, (team_name, team_config) in enumerate(TEAMS_CONFIG.items()):
+        report, error, naming_warning, verification_violations = generate_team_report(team_name, team_config)
+
+        if idx < len(TEAMS_CONFIG) - 1:
+            time.sleep(15)
+
+        if error:
+            results["teams"][team_name] = {
+                "status": "error",
+                "message": error,
+                "naming_warning": naming_warning,
+                "verification_violations": verification_violations,
+            }
+            continue
+
+        all_team_reports.append({
+            "team_name": team_name,
+            "report": report,
+            "naming_warning": naming_warning,
+            "verification_violations": verification_violations,
+        })
+        results["teams"][team_name] = {
+            "status": "success",
+            "message": "",
+            "naming_warning": naming_warning,
+            "verification_violations": verification_violations,
+        }
+
+    confluence_url = None
+    if all_team_reports:
+        consolidated = build_consolidated_report(all_team_reports)
+        confluence_url = post_to_confluence(get_confluence_title(), consolidated)
+
+    return all_team_reports, results, confluence_url
+
+
 def _serve_person_html() -> tuple[str, int, dict]:
     """Serve the Developer lookup HTML page."""
     path = STATIC_DIR / "person.html"
@@ -118,44 +166,15 @@ def generate_and_send_report(request):
     if path != "/report" and method != "POST":
         return _json_response({"error": "Not found", "path": path}, 404)
 
-    results = {"timestamp": None, "teams": {}, "scrum_master": {"sent": False, "message": ""}}
-    results["timestamp"] = datetime.now().isoformat()
-    all_team_reports = []
-
     try:
-        for idx, (team_name, team_config) in enumerate(TEAMS_CONFIG.items()):
-            report, error, naming_warning, verification_violations = generate_team_report(team_name, team_config)
+        all_team_reports, results, confluence_url = _generate_reports_internal()
 
-            if idx < len(TEAMS_CONFIG) - 1:
-                time.sleep(15)
-
-            if error:
-                results["teams"][team_name] = {
-                    "status": "error",
-                    "message": error,
-                    "sent_to_em": False,
-                    "naming_warning": naming_warning,
-                    "verification_violations": verification_violations,
-                }
-                continue
-
-            all_team_reports.append({
-                "team_name": team_name,
-                "report": report,
-                "naming_warning": naming_warning,
-                "verification_violations": verification_violations,
-            })
-            results["teams"][team_name] = {
-                "status": "success",
-                "message": "",
-                "sent_to_em": False,
-                "naming_warning": naming_warning,
-                "verification_violations": verification_violations,
-            }
+        # Add HTTP-specific tracking fields
+        results["scrum_master"] = {"sent": False, "message": "", "teams_included": 0}
+        for team_name in results["teams"]:
+            results["teams"][team_name]["sent_to_em"] = False
 
         if all_team_reports:
-            consolidated = build_consolidated_report(all_team_reports)
-            confluence_url = post_to_confluence(get_confluence_title(), consolidated)
             teams_message = build_teams_message(all_team_reports, confluence_url, results)
             channel_sent = post_to_teams(REPORT_CHANNEL_WEBHOOK, teams_message, "Report channel") if REPORT_CHANNEL_WEBHOOK else False
             result_note = "Report link" if confluence_url else "Report link not created (Confluence error)"
@@ -191,33 +210,19 @@ def generate_and_send_report(request):
 # Github Cron Job
 def run_daily_report():
     """Runs the daily report directly (used by GitHub Actions)."""
+    import sys
 
-    results = {"timestamp": datetime.now().isoformat(), "teams": {}}
-    all_team_reports = []
+    all_team_reports, results, confluence_url = _generate_reports_internal()
 
-    for idx, (team_name, team_config) in enumerate(TEAMS_CONFIG.items()):
-        report, error, naming_warning, verification_violations = generate_team_report(team_name, team_config)
-
-        if idx < len(TEAMS_CONFIG) - 1:
-            time.sleep(15)
-
-        if error:
-            print(f"❌ {team_name}: {error}")
-            continue
-
-        all_team_reports.append({
-            "team_name": team_name,
-            "report": report,
-            "naming_warning": naming_warning,
-            "verification_violations": verification_violations,
-        })
+    # Print errors for teams that failed
+    for team_name, team_result in results["teams"].items():
+        if team_result.get("status") == "error":
+            print(f"❌ {team_name}: {team_result.get('message', 'Unknown error')}")
 
     if not all_team_reports:
         print("No reports generated.")
         return
 
-    consolidated = build_consolidated_report(all_team_reports)
-    confluence_url = post_to_confluence(get_confluence_title(), consolidated)
     teams_message = build_teams_message(all_team_reports, confluence_url, results)
 
     if not confluence_url:
@@ -229,7 +234,6 @@ def run_daily_report():
         print("Report sent to Teams:", sent)
     else:
         print("No TEAMS_WEBHOOK configured.")
-
 
     print("Report generation completed.")
 

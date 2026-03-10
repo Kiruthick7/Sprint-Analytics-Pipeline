@@ -22,6 +22,6 @@ def post_to_teams(webhook_url: str, message: str, recipient_name: str) -> bool:
             return True
         logger.error(f"Failed to post to Teams for {recipient_name}: {response.status_code}")
         return False
-    except Exception as e:
+    except requests.exceptions.RequestException as e:
         logger.error(f"Error posting to Teams for {recipient_name}: {e}")
         return False

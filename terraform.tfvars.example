@@ -1,5 +1,6 @@
 # terraform.tfvars.example
 # Copy to terraform.tfvars and fill in values. See README for full setup.
+# Deploys Cloud Function (Gen2) + Scheduler with Confluence API v2, optimized caching
 
 project_id = "your-gcp-project-id"
 region     = "us-central1"
@@ -11,17 +12,17 @@ jira_token     = "your_jira_api_token"
 # Teams (required for report link)
 teams_webhook = "https://outlook.office.com/webhook/xxx-scrummaster"
 
-# Confluence (required for report page)
+# Confluence (required for report page) - Uses REST API v2
 confluence_base_url  = "https://your-site.atlassian.net/wiki"
 confluence_user      = "your.email@company.com"
 confluence_token     = "your_confluence_api_token"
 confluence_space_key = "YOUR_SPACE"
 
-# LLM (required for AI summary)
-llm_provider  = "groq"
+# LLM (required for Blockers comment summaries)
+llm_provider  = "groq"  # groq (fast, free) or gemini (large context)
 groq_api_key  = "your_groq_api_key"
 # gemini_api_key = "your_gemini_key"  # when llm_provider = "gemini"
 
-# Optional: schedule (default 9 AM daily)
-# schedule  = "0 9 * * *"
-# time_zone = "America/Chicago"
+# Optional: schedule (default daily Mon-Sat 7 AM IST)
+# schedule  = "30 1 * * 1-6"  # 1=Mon, 6=Sat
+# time_zone = "Asia/Kolkata"

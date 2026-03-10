@@ -8,6 +8,16 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+# Configure matplotlib early (before any imports that might use it)
+# Suppress font loading warnings (non-fatal, just noisy)
+try:
+    import matplotlib
+    matplotlib.use("Agg")  # Non-interactive backend for server use
+    logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
+except ImportError:
+    # matplotlib is optional (only needed for violation charts)
+    pass
+
 # Jira
 JIRA_SERVER = os.getenv("JIRA_SERVER", "https://hy-vee.atlassian.net")
 JIRA_USER_NAME = os.getenv("JIRA_USER_NAME")
