@@ -1,8 +1,19 @@
-# HSTG Digital Jira Report Generator
+# ⚡ Sprint Analytics Pipeline & Governance Engine
+
+> Enterprise Jira sprint telemetry and analytics pipeline with automated Confluence dashboards, developer velocity metrics, and LLM blocker summarization.
+
+[![Python](https://img.shields.io/badge/Python-3.11%2B-blue?style=flat&logo=python)](https://python.org)
+[![Jira API](https://img.shields.io/badge/API-Jira_REST_v3-0052CC?style=flat&logo=jira)](https://developer.atlassian.com)
+[![Confluence](https://img.shields.io/badge/API-Confluence_REST_v2-172B4D?style=flat&logo=confluence)](https://developer.atlassian.com)
+[![GCP](https://img.shields.io/badge/Cloud-Google_Cloud-4285F4?style=flat&logo=googlecloud)](https://cloud.google.com)
+[![Terraform](https://img.shields.io/badge/IaC-Terraform-844FBA?style=flat&logo=terraform)](https://terraform.io)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+---
 
 Generates Jira sprint reports for multiple teams, posts one consolidated page to Confluence, and notifies a Microsoft Teams channel. Includes **Developer lookup**: open the report and use the link (or embedded iframe) to look up a developer and see their story points and issues.
 
-[![Jira Sprint Report](https://github.com/Kiruthick7/Jira_Status_Report_Tool/actions/workflows/jira-report.yml/badge.svg?event=workflow_dispatch)](https://github.com/Kiruthick7/Jira_Status_Report_Tool/actions/workflows/jira-report.yml)
+[![Jira Sprint Report](https://github.com/Kiruthick7/Sprint-Analytics-Pipeline/actions/workflows/jira-report.yml/badge.svg?event=workflow_dispatch)](https://github.com/Kiruthick7/Sprint-Analytics-Pipeline/actions/workflows/jira-report.yml)
 
 ## Features
 
