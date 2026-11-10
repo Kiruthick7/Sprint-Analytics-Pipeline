@@ -1,11 +1,8 @@
 name: Jira Sprint Report
 
 on:
-  schedule:
-    # Daily at 7:00 AM IST = 01:30 UTC
-    # Monday through Saturday (1=Mon, 6=Sat)
-    - cron: '30 1 * * 1-6'
   workflow_dispatch:
+    # Manual execution only via GitHub Actions tab (automated daily cron disabled)
 
 concurrency:
   group: jira-sprint-report
